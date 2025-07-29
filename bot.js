@@ -2,6 +2,28 @@ import { Client, GatewayIntentBits, AttachmentBuilder, Events } from 'discord.js
 import puppeteer from 'puppeteer';
 import fs from 'fs';
 
+// Load environment variables
+const dotenv = await import('dotenv');
+dotenv.config();
+
+const config = {
+    discordToken: process.env.DISCORD_TOKEN || 'your_discord_token_here',
+    channelId: process.env.CHANNEL_ID || 'your_channel_id_here',
+    livestreamUrl: process.env.LIVESTREAM_URL || 'https://www.youtube.com/watch?v=your_livestream_id',
+    xBannerArea: {
+        x: 50,     // X coordinate of X banner
+        y: 50,     // Y coordinate of X banner
+        width: 1200, // Width of X banner area
+        height: 900 // Height of X banner area
+    },
+    yBannerArea: {
+        x: 50,     // X coordinate of Y banner (same as X banner)
+        y: 50,     // Y coordinate of Y banner (same as X banner)
+        width: 1200, // Width of Y banner area (same as X banner)
+        height: 900 // Height of Y banner area (same as X banner)
+    }
+};
+
 class ASTDXBannerBot {
     constructor(config) {
         this.config = config;
@@ -650,7 +672,7 @@ class ASTDXBannerBot {
 
     async start() {
         try {
-            await this.client.login(this.config.botToken);
+            await this.client.login(this.config.discordToken);
         } catch (error) {
             console.error('Failed to login to Discord:', error);
             throw error;
@@ -683,28 +705,6 @@ class ASTDXBannerBot {
         }
     }
 }
-
-// Configuration - UPDATE THESE VALUES
-const config = {
-    botToken: 'MTM5OTc4NjQ5MzUzNDI3NzgwMw.GA8eDI.pPJRhL8CAM0QQ2PzKRGpZ4SGgd2QVYD9hMJxfo', // REGENERATE YOUR TOKEN FIRST!
-    channelId: '1399789940165972109',
-    livestreamUrl: 'https://www.youtube.com/watch?v=NRLS1Acozgw',
-    
-    // You need to determine these coordinates by testing
-    xBannerArea: {
-        x: 50,     // X coordinate of X banner
-        y: 50,     // Y coordinate of X banner  
-        width: 1200, // Width of X banner area (much larger)
-        height: 900 // Height of X banner area (much larger)
-    },
-    
-    yBannerArea: {
-        x: 50,     // X coordinate of Y banner (same as X banner)
-        y: 50,     // Y coordinate of Y banner (same as X banner)
-        width: 1200, // Width of Y banner area (same as X banner)
-        height: 900 // Height of Y banner area (same as X banner)
-    }
-};
 
 // Start the bot
 const bot = new ASTDXBannerBot(config);

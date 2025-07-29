@@ -13,8 +13,8 @@
     },
     "dependencies": {
         "discord.js": "^14.14.1",
-        "puppeteer": "^24.15.0",
-        "tesseract.js": "^5.0.4"
+        "puppeteer": "^21.6.1",
+        "dotenv": "^16.3.1"
     },
     "devDependencies": {
         "nodemon": "^3.0.2",
