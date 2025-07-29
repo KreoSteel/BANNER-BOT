@@ -308,8 +308,8 @@ class ASTDXBannerBot {
                     this.lastYBannerTime = Date.now();
                     
                     // Wait 8 seconds between captures
-                    console.log('⏳ Waiting 1 minute between banner captures...');
-                    await new Promise(resolve => setTimeout(resolve, 60000));
+                    console.log('⏳ Waiting 20 seconds between banner captures...');
+                    await new Promise(resolve => setTimeout(resolve, 20000));
                     
                     // Capture X Banner
                     await this.captureXBanner();
@@ -342,9 +342,9 @@ class ASTDXBannerBot {
                     await new Promise(resolve => setTimeout(resolve, 60000));
                 }
                 
-                // Wait 20 seconds before next check
-                console.log('⏳ Waiting 20 seconds before next check...');
-                await new Promise(resolve => setTimeout(resolve, 20000));
+                // Wait 1 minute before next check
+                console.log('⏳ Waiting 1 minute before next check...');
+                await new Promise(resolve => setTimeout(resolve, 60000));
                 
             } catch (error) {
                 console.error('❌ Error in monitoring loop:', error);
