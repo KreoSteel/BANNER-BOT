@@ -1,0 +1,37 @@
+{
+    "name": "banner-bot",
+    "version": "1.0.0",
+    "description": "Discord bot that monitors ASTDX livestream banners",
+    "main": "bot.js",
+    "type": "module",
+    "scripts": {
+        "start": "node bot.js",
+        "dev": "nodemon bot.js",
+        "test": "node --test",
+        "lint": "eslint bot.js",
+        "setup-adblocker": "node setup-adblocker.js"
+    },
+    "dependencies": {
+        "discord.js": "^14.14.1",
+        "puppeteer": "^24.15.0",
+        "tesseract.js": "^5.0.4"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.2",
+        "eslint": "^8.57.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "keywords": [
+        "discord",
+        "bot",
+        "screenshot",
+        "roblox",
+        "astdx",
+        "livestream",
+        "monitoring"
+    ],
+    "author": "Your Name",
+    "license": "MIT"
+}
