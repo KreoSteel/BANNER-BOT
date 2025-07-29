@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=ec2-user
-WorkingDirectory=/home/ec2-user/banner-bot
+User=lucat
+WorkingDirectory=/home/lucat/banner-bot
 ExecStart=/usr/bin/node bot.js
 Restart=always
 RestartSec=10
