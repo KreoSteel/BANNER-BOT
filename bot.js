@@ -213,9 +213,20 @@ class ASTDXBannerBot {
             // Check for bot verification challenge first
             const hasBotChallenge = await this.checkForBotVerification();
             if (hasBotChallenge) {
-                console.log('🤖 Bot verification challenge detected!');
-                await this.sendErrorToDiscord('Bot verification challenge detected! Manual intervention required.');
-                return;
+                console.log('🤖 Bot verification challenge detected! Attempting to resolve...');
+                await this.sendErrorToDiscord('Bot verification challenge detected! Attempting automatic resolution...');
+                
+                // Try to automatically resolve the challenge
+                await this.attemptAutoResolveBotChallenge();
+                
+                // Check if challenge is still present after attempt
+                const stillHasChallenge = await this.checkForBotVerification();
+                if (stillHasChallenge) {
+                    console.log('⚠️ Bot challenge still present after auto-resolution attempt');
+                    return;
+                } else {
+                    console.log('✅ Bot challenge resolved automatically!');
+                }
             }
             
             try {
@@ -542,6 +553,59 @@ class ASTDXBannerBot {
         }
     }
 
+    async attemptAutoResolveBotChallenge() {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                console.log('❌ Page not available for auto-resolution');
+                return false;
+            }
+
+            console.log('🤖 Attempting to automatically resolve bot challenge...');
+            
+            // Try multiple selectors for the sign-in button
+            const signInSelectors = [
+                'button:has-text("Sign in")',
+                'button[aria-label*="Sign in"]',
+                'button:contains("Sign in")',
+                'button[data-text="Sign in"]',
+                'button[class*="sign-in"]',
+                'button[class*="SignIn"]'
+            ];
+            
+            for (const selector of signInSelectors) {
+                try {
+                    const signInButton = await this.page.$(selector);
+                    if (signInButton) {
+                        console.log(`🖱️ Found sign-in button with selector: ${selector}`);
+                        await signInButton.click();
+                        console.log('✅ Clicked sign-in button');
+                        
+                        // Wait for the sign-in process
+                        await new Promise(resolve => setTimeout(resolve, 3000));
+                        
+                        // Check if challenge is resolved
+                        const stillHasChallenge = await this.checkForBotVerification();
+                        if (!stillHasChallenge) {
+                            console.log('✅ Bot challenge resolved automatically!');
+                            return true;
+                        } else {
+                            console.log('⚠️ Bot challenge still present after clicking sign-in');
+                        }
+                    }
+                } catch (error) {
+                    console.log(`⚠️ Error with selector ${selector}:`, error.message);
+                }
+            }
+            
+            console.log('❌ Could not automatically resolve bot challenge');
+            return false;
+            
+        } catch (error) {
+            console.error('❌ Error in auto-resolution attempt:', error);
+            return false;
+        }
+    }
+
     async resolveBotChallenge(message) {
         try {
             if (!this.page || this.page.isClosed()) {
@@ -556,30 +620,12 @@ class ASTDXBannerBot {
                 // Try to automatically click the sign-in button
                 await message.reply('🤖 Attempting to automatically resolve bot challenge...');
                 
-                try {
-                    // Try to click the sign-in button
-                    const signInButton = await this.page.$('button:has-text("Sign in"), button[aria-label*="Sign in"], button:contains("Sign in")');
-                    if (signInButton) {
-                        await signInButton.click();
-                        await message.reply('🖱️ Clicked sign-in button. Waiting for challenge to resolve...');
-                        
-                        // Wait a bit for the sign-in process
-                        await new Promise(resolve => setTimeout(resolve, 5000));
-                        
-                        // Check if challenge is resolved
-                        const stillHasChallenge = await this.checkForBotVerification();
-                        if (!stillHasChallenge) {
-                            await message.reply('✅ Bot challenge appears to be resolved automatically!');
-                        } else {
-                            await message.reply('⚠️ Bot challenge still present. Manual intervention may be required.');
-                            return;
-                        }
-                    } else {
-                        await message.reply('⚠️ Could not find sign-in button. Manual intervention required.');
-                        return;
-                    }
-                } catch (error) {
-                    await message.reply('⚠️ Error trying to auto-resolve: ' + error.message);
+                const resolved = await this.attemptAutoResolveBotChallenge();
+                
+                if (resolved) {
+                    await message.reply('✅ Bot challenge resolved automatically!');
+                } else {
+                    await message.reply('⚠️ Could not automatically resolve bot challenge. Manual intervention may be required.');
                     return;
                 }
             }
