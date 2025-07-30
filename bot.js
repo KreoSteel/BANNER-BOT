@@ -3,7 +3,7 @@ import puppeteer from 'puppeteer';
 import fs from 'fs';
 
 // Load environment variables
-const dotenv = await import('dotenv');
+import dotenv from 'dotenv';
 dotenv.config();
 
 const config = {
@@ -109,6 +109,9 @@ class ASTDXBannerBot {
             });
 
             this.page = await this.browser.newPage();
+            
+            // Set a realistic user agent to avoid bot detection
+            await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
             
             // Set viewport size
             await this.page.setViewport({ width: 1920, height: 1080 });
