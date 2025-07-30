@@ -86,7 +86,7 @@ class ASTDXBannerBot {
             const userDataDir = './browser-data';
             
             this.browser = await puppeteer.launch({
-                headless: false, // Changed to false so you can see and interact with the browser
+                headless: 'new', // Back to headless for server compatibility
                 userDataDir: userDataDir,
                 args: [
                     '--no-sandbox',
@@ -553,8 +553,35 @@ class ASTDXBannerBot {
             const hasBotChallenge = await this.checkForBotVerification();
             
             if (hasBotChallenge) {
-                await message.reply('🤖 Bot challenge is still present. Please solve it manually first, then try again.');
-                return;
+                // Try to automatically click the sign-in button
+                await message.reply('🤖 Attempting to automatically resolve bot challenge...');
+                
+                try {
+                    // Try to click the sign-in button
+                    const signInButton = await this.page.$('button:has-text("Sign in"), button[aria-label*="Sign in"], button:contains("Sign in")');
+                    if (signInButton) {
+                        await signInButton.click();
+                        await message.reply('🖱️ Clicked sign-in button. Waiting for challenge to resolve...');
+                        
+                        // Wait a bit for the sign-in process
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        
+                        // Check if challenge is resolved
+                        const stillHasChallenge = await this.checkForBotVerification();
+                        if (!stillHasChallenge) {
+                            await message.reply('✅ Bot challenge appears to be resolved automatically!');
+                        } else {
+                            await message.reply('⚠️ Bot challenge still present. Manual intervention may be required.');
+                            return;
+                        }
+                    } else {
+                        await message.reply('⚠️ Could not find sign-in button. Manual intervention required.');
+                        return;
+                    }
+                } catch (error) {
+                    await message.reply('⚠️ Error trying to auto-resolve: ' + error.message);
+                    return;
+                }
             }
 
             // Challenge seems to be resolved, try to continue
