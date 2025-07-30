@@ -120,12 +120,22 @@ class ASTDXBannerBot {
 
             // Check if on the correct page
             const currentUrl = this.page.url();
+            console.log('📍 Current URL:', currentUrl);
+            console.log('🎯 Target URL:', this.config.livestreamUrl);
+            
             if (!currentUrl.includes(this.config.livestreamUrl.split('?')[0])) {
                 console.error('❌ Not on the correct livestream page! Current URL:', currentUrl);
                 await this.sendErrorToDiscord('Not on the correct livestream page! Please check the livestream URL in the config.');
                 return;
             } else {
                 console.log('✅ On the correct livestream page.');
+            }
+
+            // Check if we're on a YouTube page
+            if (!currentUrl.includes('youtube.com') && !currentUrl.includes('youtu.be')) {
+                console.error('❌ Not on a YouTube page! Current URL:', currentUrl);
+                await this.sendErrorToDiscord('Not on a YouTube page! Please check the livestream URL.');
+                return;
             }
 
             // Handle YouTube consent popup and other overlays
@@ -178,30 +188,53 @@ class ASTDXBannerBot {
         try {
             console.log('🔧 Handling YouTube overlays...');
             
-            // Wait less for overlays to load
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Wait for overlays to load
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
-            // More aggressive popup handling
+            // More targeted popup handling - avoid affecting video elements
             await this.page.evaluate(() => {
-                // Remove any overlays by setting their display to none
-                const overlays = document.querySelectorAll('[role="dialog"], .modal, .popup, .overlay, .ytp-popup, .ytp-pause-overlay, .ytp-gradient-top, .ytp-gradient-bottom');
-                overlays.forEach(overlay => {
-                    overlay.style.display = 'none';
-                    overlay.style.visibility = 'hidden';
-                    overlay.style.opacity = '0';
+                // Only remove specific overlay types, not all overlays
+                const overlaySelectors = [
+                    '[role="dialog"]:not([data-video-id])', // Exclude video-related dialogs
+                    '.modal:not(.html5-video-player)',
+                    '.popup:not(.ytp-player)',
+                    '.overlay:not(.ytp-video-container)',
+                    '.ytp-popup',
+                    '.ytp-pause-overlay',
+                    '.ytp-gradient-top',
+                    '.ytp-gradient-bottom'
+                ];
+                
+                overlaySelectors.forEach(selector => {
+                    const overlays = document.querySelectorAll(selector);
+                    overlays.forEach(overlay => {
+                        // Check if this overlay is related to video player
+                        if (!overlay.closest('.html5-video-player') && 
+                            !overlay.closest('.ytp-player') && 
+                            !overlay.closest('video')) {
+                            overlay.style.display = 'none';
+                            overlay.style.visibility = 'hidden';
+                            overlay.style.opacity = '0';
+                        }
+                    });
                 });
                 
-                // Remove any backdrop elements
+                // Remove backdrop elements that are not video-related
                 const backdrops = document.querySelectorAll('.backdrop, .modal-backdrop, .overlay-backdrop');
                 backdrops.forEach(backdrop => {
-                    backdrop.style.display = 'none';
+                    if (!backdrop.closest('.html5-video-player') && 
+                        !backdrop.closest('.ytp-player')) {
+                        backdrop.style.display = 'none';
+                    }
                 });
                 
-                // Click any "Accept" or "Continue" buttons
+                // Click consent buttons more carefully
                 const buttons = document.querySelectorAll('button');
                 buttons.forEach(button => {
                     const text = button.textContent.toLowerCase();
-                    if (text.includes('accept') || text.includes('agree') || text.includes('continue') || text.includes('ok')) {
+                    if ((text.includes('accept') || text.includes('agree') || text.includes('continue') || text.includes('ok')) &&
+                        !button.closest('.html5-video-player') && 
+                        !button.closest('.ytp-player')) {
                         button.click();
                     }
                 });
@@ -211,10 +244,10 @@ class ASTDXBannerBot {
                 document.documentElement.style.overflow = 'auto';
             });
             
-            // Wait less for changes to take effect
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Wait for changes to take effect
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
-            console.log('✅ YouTube overlays handled aggressively');
+            console.log('✅ YouTube overlays handled carefully');
             
         } catch (error) {
             console.error('❌ Error handling YouTube overlays:', error);
@@ -225,28 +258,82 @@ class ASTDXBannerBot {
         try {
             console.log('▶️ Attempting to start video...');
 
-            // Wait for a video element to appear (timeout after 5 seconds)
-            await this.page.waitForSelector('video', { timeout: 5000 });
-            await new Promise(resolve => setTimeout(resolve, 300)); // Let the video load
+            // First, try to find video element with a longer timeout and more flexible approach
+            let videoElement = null;
+            let attempts = 0;
+            const maxAttempts = 10;
 
-            // Try to play the video using the video element's play() method
-            const played = await this.page.evaluate(async () => {
-                const video = document.querySelector('video');
-                if (video) {
-                    try {
-                        await video.play();
-                        return !video.paused;
-                    } catch (e) {
-                        // If play() fails (e.g., due to overlay), return false
-                        return false;
+            while (!videoElement && attempts < maxAttempts) {
+                try {
+                    // Try to wait for video element with shorter timeout
+                    await this.page.waitForSelector('video', { timeout: 2000 });
+                    videoElement = await this.page.$('video');
+                    if (videoElement) {
+                        console.log('✅ Video element found');
+                        break;
+                    }
+                } catch (e) {
+                    console.log(`⏳ Video element not found yet, attempt ${attempts + 1}/${maxAttempts}`);
+                    attempts++;
+                    
+                    // Wait a bit before trying again
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // Try to refresh the page if we've tried too many times
+                    if (attempts === 5) {
+                        console.log('🔄 Refreshing page to try again...');
+                        await this.page.reload({ waitUntil: 'networkidle2' });
+                        await this.handleYouTubeOverlays();
                     }
                 }
-                return false;
-            });
+            }
 
-            if (played) {
-                console.log('✅ Video started via video.play()');
-                return;
+            if (!videoElement) {
+                console.log('⚠️ Video element not found after multiple attempts, trying alternative approach...');
+                
+                // Try to find any video-related elements
+                const videoSelectors = [
+                    'video',
+                    '[data-video-id]',
+                    '.html5-video-player',
+                    '.ytp-video-container'
+                ];
+                
+                for (const selector of videoSelectors) {
+                    const element = await this.page.$(selector);
+                    if (element) {
+                        console.log(`✅ Found video-related element: ${selector}`);
+                        break;
+                    }
+                }
+                
+                // Wait a bit more and try one more time
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                videoElement = await this.page.$('video');
+            }
+
+            if (videoElement) {
+                await new Promise(resolve => setTimeout(resolve, 500)); // Let the video load
+
+                // Try to play the video using the video element's play() method
+                const played = await this.page.evaluate(async () => {
+                    const video = document.querySelector('video');
+                    if (video) {
+                        try {
+                            await video.play();
+                            return !video.paused;
+                        } catch (e) {
+                            console.log('Video play() failed:', e.message);
+                            return false;
+                        }
+                    }
+                    return false;
+                });
+
+                if (played) {
+                    console.log('✅ Video started via video.play()');
+                    return;
+                }
             }
 
             // If not playing, try clicking the overlay play button
@@ -254,7 +341,9 @@ class ASTDXBannerBot {
                 '.ytp-large-play-button', // YouTube's big play button
                 '.ytp-play-button',
                 'button[aria-label*="Play"]',
-                'button[aria-label*="play"]'
+                'button[aria-label*="play"]',
+                '[aria-label*="Play video"]',
+                '[aria-label*="play video"]'
             ];
             let clicked = false;
             for (const selector of playButtonSelectors) {
@@ -263,21 +352,22 @@ class ASTDXBannerBot {
                     await button.click();
                     clicked = true;
                     console.log(`🖱️ Clicked play button: ${selector}`);
-                    await new Promise(resolve => setTimeout(resolve, 300));
+                    await new Promise(resolve => setTimeout(resolve, 500));
                     break;
                 }
             }
 
             // Fallback: click the center of the video area
-            if (!clicked) {
-                const videoBox = await this.page.$('video');
-                if (videoBox) {
-                    const box = await videoBox.boundingBox();
+            if (!clicked && videoElement) {
+                try {
+                    const box = await videoElement.boundingBox();
                     if (box) {
                         await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
                         console.log('🖱️ Clicked center of video area');
-                        await new Promise(resolve => setTimeout(resolve, 300));
+                        await new Promise(resolve => setTimeout(resolve, 500));
                     }
+                } catch (e) {
+                    console.log('Could not click center of video area:', e.message);
                 }
             }
 
@@ -290,10 +380,11 @@ class ASTDXBannerBot {
             if (isPlaying) {
                 console.log('✅ Video is now playing!');
             } else {
-                console.log('⚠️ Video could not be started automatically.');
+                console.log('⚠️ Video could not be started automatically, but continuing with monitoring...');
             }
         } catch (error) {
             console.error('❌ Error starting video:', error);
+            console.log('⚠️ Continuing with monitoring despite video start error...');
         }
     }
 
