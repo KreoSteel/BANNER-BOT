@@ -67,6 +67,13 @@ class ASTDXBannerBot {
                 await this.testScreenshot();
             } else if (message.content === '!start-video') {
                 await this.startVideo();
+            } else if (message.content === '!check-bot-challenge') {
+                await this.checkBotChallengeStatus(message);
+            } else if (message.content === '!resolve-challenge') {
+                await this.resolveBotChallenge(message);
+            } else if (message.content === '!restart-browser') {
+                await this.restartBrowser();
+                await message.reply('🔄 Browser restarted!');
             }
         });
     }
@@ -79,7 +86,7 @@ class ASTDXBannerBot {
             const userDataDir = './browser-data';
             
             this.browser = await puppeteer.launch({
-                headless: 'new',
+                headless: 'new', // Back to headless for server compatibility
                 userDataDir: userDataDir,
                 args: [
                     '--no-sandbox',
@@ -188,66 +195,106 @@ class ASTDXBannerBot {
         try {
             console.log('🔧 Handling YouTube overlays...');
             
+            // Check if page and browser are still valid
+            if (!this.page || !this.browser) {
+                console.log('⚠️ Page or browser not available, skipping overlay handling');
+                return;
+            }
+
+            // Check if page is still attached to browser
+            if (this.page.isClosed()) {
+                console.log('⚠️ Page is closed, skipping overlay handling');
+                return;
+            }
+            
             // Wait for overlays to load
             await new Promise(resolve => setTimeout(resolve, 2000));
             
-            // More targeted popup handling - avoid affecting video elements
-            await this.page.evaluate(() => {
-                // Only remove specific overlay types, not all overlays
-                const overlaySelectors = [
-                    '[role="dialog"]:not([data-video-id])', // Exclude video-related dialogs
-                    '.modal:not(.html5-video-player)',
-                    '.popup:not(.ytp-player)',
-                    '.overlay:not(.ytp-video-container)',
-                    '.ytp-popup',
-                    '.ytp-pause-overlay',
-                    '.ytp-gradient-top',
-                    '.ytp-gradient-bottom'
-                ];
+            // Check for bot verification challenge first
+            const hasBotChallenge = await this.checkForBotVerification();
+            if (hasBotChallenge) {
+                console.log('🤖 Bot verification challenge detected! Attempting to resolve...');
+                await this.sendErrorToDiscord('Bot verification challenge detected! Attempting automatic resolution...');
                 
-                overlaySelectors.forEach(selector => {
-                    const overlays = document.querySelectorAll(selector);
-                    overlays.forEach(overlay => {
-                        // Check if this overlay is related to video player
-                        if (!overlay.closest('.html5-video-player') && 
-                            !overlay.closest('.ytp-player') && 
-                            !overlay.closest('video')) {
-                            overlay.style.display = 'none';
-                            overlay.style.visibility = 'hidden';
-                            overlay.style.opacity = '0';
+                // Try to automatically resolve the challenge
+                await this.attemptAutoResolveBotChallenge();
+                
+                // Check if challenge is still present after attempt
+                const stillHasChallenge = await this.checkForBotVerification();
+                if (stillHasChallenge) {
+                    console.log('⚠️ Bot challenge still present after auto-resolution attempt');
+                    return;
+                } else {
+                    console.log('✅ Bot challenge resolved automatically!');
+                }
+            }
+            
+            try {
+                // More targeted popup handling - avoid affecting video elements
+                await this.page.evaluate(() => {
+                    // Only remove specific overlay types, not all overlays
+                    const overlaySelectors = [
+                        '[role="dialog"]:not([data-video-id])', // Exclude video-related dialogs
+                        '.modal:not(.html5-video-player)',
+                        '.popup:not(.ytp-player)',
+                        '.overlay:not(.ytp-video-container)',
+                        '.ytp-popup',
+                        '.ytp-pause-overlay',
+                        '.ytp-gradient-top',
+                        '.ytp-gradient-bottom'
+                    ];
+                    
+                    overlaySelectors.forEach(selector => {
+                        const overlays = document.querySelectorAll(selector);
+                        overlays.forEach(overlay => {
+                            // Check if this overlay is related to video player
+                            if (!overlay.closest('.html5-video-player') && 
+                                !overlay.closest('.ytp-player') && 
+                                !overlay.closest('video')) {
+                                overlay.style.display = 'none';
+                                overlay.style.visibility = 'hidden';
+                                overlay.style.opacity = '0';
+                            }
+                        });
+                    });
+                    
+                    // Remove backdrop elements that are not video-related
+                    const backdrops = document.querySelectorAll('.backdrop, .modal-backdrop, .overlay-backdrop');
+                    backdrops.forEach(backdrop => {
+                        if (!backdrop.closest('.html5-video-player') && 
+                            !backdrop.closest('.ytp-player')) {
+                            backdrop.style.display = 'none';
                         }
                     });
+                    
+                    // Click consent buttons more carefully
+                    const buttons = document.querySelectorAll('button');
+                    buttons.forEach(button => {
+                        const text = button.textContent.toLowerCase();
+                        if ((text.includes('accept') || text.includes('agree') || text.includes('continue') || text.includes('ok')) &&
+                            !button.closest('.html5-video-player') && 
+                            !button.closest('.ytp-player')) {
+                            button.click();
+                        }
+                    });
+                    
+                    // Remove body scroll lock
+                    document.body.style.overflow = 'auto';
+                    document.documentElement.style.overflow = 'auto';
                 });
                 
-                // Remove backdrop elements that are not video-related
-                const backdrops = document.querySelectorAll('.backdrop, .modal-backdrop, .overlay-backdrop');
-                backdrops.forEach(backdrop => {
-                    if (!backdrop.closest('.html5-video-player') && 
-                        !backdrop.closest('.ytp-player')) {
-                        backdrop.style.display = 'none';
-                    }
-                });
+                // Wait for changes to take effect
+                await new Promise(resolve => setTimeout(resolve, 1000));
                 
-                // Click consent buttons more carefully
-                const buttons = document.querySelectorAll('button');
-                buttons.forEach(button => {
-                    const text = button.textContent.toLowerCase();
-                    if ((text.includes('accept') || text.includes('agree') || text.includes('continue') || text.includes('ok')) &&
-                        !button.closest('.html5-video-player') && 
-                        !button.closest('.ytp-player')) {
-                        button.click();
-                    }
-                });
+                console.log('✅ YouTube overlays handled carefully');
                 
-                // Remove body scroll lock
-                document.body.style.overflow = 'auto';
-                document.documentElement.style.overflow = 'auto';
-            });
-            
-            // Wait for changes to take effect
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            
-            console.log('✅ YouTube overlays handled carefully');
+            } catch (error) {
+                if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                    console.log('⚠️ Execution context was destroyed during overlay handling');
+                    return;
+                }
+                throw error;
+            }
             
         } catch (error) {
             console.error('❌ Error handling YouTube overlays:', error);
@@ -258,130 +305,65 @@ class ASTDXBannerBot {
         try {
             console.log('▶️ Attempting to start video...');
 
-            // First, try to find video element with a longer timeout and more flexible approach
-            let videoElement = null;
-            let attempts = 0;
-            const maxAttempts = 10;
+            // Check if page and browser are still valid
+            if (!this.page || !this.browser) {
+                console.log('⚠️ Page or browser not available, skipping video start');
+                return;
+            }
 
-            while (!videoElement && attempts < maxAttempts) {
+            // Check if page is still attached to browser
+            if (!this.page.isClosed()) {
                 try {
-                    // Try to wait for video element with shorter timeout
-                    await this.page.waitForSelector('video', { timeout: 2000 });
-                    videoElement = await this.page.$('video');
-                    if (videoElement) {
-                        console.log('✅ Video element found');
-                        break;
-                    }
-                } catch (e) {
-                    console.log(`⏳ Video element not found yet, attempt ${attempts + 1}/${maxAttempts}`);
-                    attempts++;
-                    
-                    // Wait a bit before trying again
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    
-                    // Try to refresh the page if we've tried too many times
-                    if (attempts === 5) {
-                        console.log('🔄 Refreshing page to try again...');
-                        await this.page.reload({ waitUntil: 'networkidle2' });
-                        await this.handleYouTubeOverlays();
-                    }
-                }
-            }
+                    // Wait a moment for page to load
+                    await new Promise(resolve => setTimeout(resolve, 2000));
 
-            if (!videoElement) {
-                console.log('⚠️ Video element not found after multiple attempts, trying alternative approach...');
-                
-                // Try to find any video-related elements
-                const videoSelectors = [
-                    'video',
-                    '[data-video-id]',
-                    '.html5-video-player',
-                    '.ytp-video-container'
-                ];
-                
-                for (const selector of videoSelectors) {
-                    const element = await this.page.$(selector);
-                    if (element) {
-                        console.log(`✅ Found video-related element: ${selector}`);
-                        break;
-                    }
-                }
-                
-                // Wait a bit more and try one more time
-                await new Promise(resolve => setTimeout(resolve, 3000));
-                videoElement = await this.page.$('video');
-            }
+                    // Try clicking play buttons directly
+                    console.log('🔍 Looking for play buttons...');
+                    const playButtonSelectors = [
+                        '.ytp-large-play-button',
+                        '.ytp-play-button',
+                        'button[aria-label*="Play"]',
+                        'button[aria-label*="play"]'
+                    ];
 
-            if (videoElement) {
-                await new Promise(resolve => setTimeout(resolve, 500)); // Let the video load
-
-                // Try to play the video using the video element's play() method
-                const played = await this.page.evaluate(async () => {
-                    const video = document.querySelector('video');
-                    if (video) {
+                    for (const selector of playButtonSelectors) {
                         try {
-                            await video.play();
-                            return !video.paused;
-                        } catch (e) {
-                            console.log('Video play() failed:', e.message);
-                            return false;
+                            // Check if page is still valid before each operation
+                            if (this.page.isClosed()) {
+                                console.log('⚠️ Page was closed during video start attempt');
+                                return;
+                            }
+
+                            const button = await this.page.$(selector);
+                            if (button) {
+                                console.log(`🖱️ Clicking play button: ${selector}`);
+                                await button.click();
+                                console.log(`✅ Clicked play button: ${selector}`);
+                                await new Promise(resolve => setTimeout(resolve, 1000));
+                                break;
+                            }
+                        } catch (error) {
+                            if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                                console.log(`⚠️ Context destroyed while clicking ${selector}, skipping`);
+                                return;
+                            }
+                            console.log(`⚠️ Error with play button ${selector}:`, error.message);
                         }
                     }
-                    return false;
-                });
 
-                if (played) {
-                    console.log('✅ Video started via video.play()');
-                    return;
-                }
-            }
+                    console.log('✅ Video start attempt completed');
 
-            // If not playing, try clicking the overlay play button
-            const playButtonSelectors = [
-                '.ytp-large-play-button', // YouTube's big play button
-                '.ytp-play-button',
-                'button[aria-label*="Play"]',
-                'button[aria-label*="play"]',
-                '[aria-label*="Play video"]',
-                '[aria-label*="play video"]'
-            ];
-            let clicked = false;
-            for (const selector of playButtonSelectors) {
-                const button = await this.page.$(selector);
-                if (button) {
-                    await button.click();
-                    clicked = true;
-                    console.log(`🖱️ Clicked play button: ${selector}`);
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    break;
-                }
-            }
-
-            // Fallback: click the center of the video area
-            if (!clicked && videoElement) {
-                try {
-                    const box = await videoElement.boundingBox();
-                    if (box) {
-                        await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-                        console.log('🖱️ Clicked center of video area');
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                } catch (error) {
+                    if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                        console.log('⚠️ Execution context was destroyed during video start');
+                        return;
                     }
-                } catch (e) {
-                    console.log('Could not click center of video area:', e.message);
+                    throw error;
                 }
-            }
-
-            // Final check: is the video playing now?
-            const isPlaying = await this.page.evaluate(() => {
-                const video = document.querySelector('video');
-                return video && !video.paused;
-            });
-
-            if (isPlaying) {
-                console.log('✅ Video is now playing!');
             } else {
-                console.log('⚠️ Video could not be started automatically, but continuing with monitoring...');
+                console.log('⚠️ Page is closed, skipping video start');
             }
+
         } catch (error) {
             console.error('❌ Error starting video:', error);
             console.log('⚠️ Continuing with monitoring despite video start error...');
@@ -402,6 +384,13 @@ class ASTDXBannerBot {
                 const currentTime = Date.now();
                 
                 console.log(`🔍 Monitoring cycle ${loopCount} - Current time: ${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
+                
+                // Check if browser context is still valid
+                if (!this.isBrowserContextValid()) {
+                    console.log('⚠️ Browser context is invalid, attempting to restart...');
+                    await this.restartBrowser();
+                    continue;
+                }
                 
                 // Run cleanup once per hour
                 if (currentTime - lastCleanupTime > 60 * 60 * 1000) { // 1 hour
@@ -461,8 +450,198 @@ class ASTDXBannerBot {
                 
             } catch (error) {
                 console.error('❌ Error in monitoring loop:', error);
-                await new Promise(resolve => setTimeout(resolve, 5000)); // Wait before retrying
+                if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                    console.log('⚠️ Execution context destroyed, attempting to restart browser...');
+                    await this.restartBrowser();
+                } else {
+                    await new Promise(resolve => setTimeout(resolve, 5000)); // Wait before retrying
+                }
             }
+        }
+    }
+
+    async checkForBotVerification() {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                return false;
+            }
+
+            const hasBotChallenge = await this.page.evaluate(() => {
+                // Check for bot verification challenges
+                const botChallengeSelectors = [
+                    'div[class*="bot"]',
+                    'div[class*="Bot"]',
+                    'div[class*="verification"]',
+                    'div[class*="Verification"]',
+                    'div[class*="captcha"]',
+                    'div[class*="Captcha"]',
+                    'div[class*="challenge"]',
+                    'div[class*="Challenge"]'
+                ];
+                
+                // Check for specific bot verification text
+                const bodyText = document.body.textContent.toLowerCase();
+                const botVerificationKeywords = [
+                    'sign in to confirm you\'re not a bot',
+                    'confirm you\'re not a bot',
+                    'verify you\'re not a bot',
+                    'prove you\'re not a bot',
+                    'bot verification',
+                    'captcha',
+                    'challenge'
+                ];
+                
+                // Check if any bot verification keywords are present
+                for (const keyword of botVerificationKeywords) {
+                    if (bodyText.includes(keyword)) {
+                        return true;
+                    }
+                }
+                
+                // Check for specific elements that might contain bot verification
+                for (const selector of botChallengeSelectors) {
+                    const elements = document.querySelectorAll(selector);
+                    for (const element of elements) {
+                        const text = element.textContent.toLowerCase();
+                        for (const keyword of botVerificationKeywords) {
+                            if (text.includes(keyword)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                
+                // Check for "Sign in" buttons that might be part of bot verification
+                const signInButtons = document.querySelectorAll('button');
+                for (const button of signInButtons) {
+                    const text = button.textContent.toLowerCase();
+                    if (text.includes('sign in') && bodyText.includes('bot')) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            });
+            
+            return hasBotChallenge;
+        } catch (error) {
+            console.error('❌ Error checking for bot verification:', error);
+            return false;
+        }
+    }
+
+    async checkBotChallengeStatus(message) {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                await message.reply('❌ Page is not available');
+                return;
+            }
+
+            const hasBotChallenge = await this.checkForBotVerification();
+            
+            if (hasBotChallenge) {
+                // Take a screenshot of the challenge
+                const screenshot = await this.page.screenshot({ fullPage: true });
+                await this.sendToDiscord(screenshot, 'Bot Challenge Detected', '🤖 Bot verification challenge detected! Use `!resolve-challenge` after manually solving it.');
+                await message.reply('🤖 Bot verification challenge detected! Check the screenshot above. Solve it manually and then use `!resolve-challenge`');
+            } else {
+                await message.reply('✅ No bot verification challenge detected');
+            }
+        } catch (error) {
+            console.error('❌ Error checking bot challenge status:', error);
+            await message.reply('❌ Error checking bot challenge status: ' + error.message);
+        }
+    }
+
+    async attemptAutoResolveBotChallenge() {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                console.log('❌ Page not available for auto-resolution');
+                return false;
+            }
+
+            console.log('🤖 Attempting to automatically resolve bot challenge...');
+            
+            // Try multiple selectors for the sign-in button
+            const signInSelectors = [
+                'button:has-text("Sign in")',
+                'button[aria-label*="Sign in"]',
+                'button:contains("Sign in")',
+                'button[data-text="Sign in"]',
+                'button[class*="sign-in"]',
+                'button[class*="SignIn"]'
+            ];
+            
+            for (const selector of signInSelectors) {
+                try {
+                    const signInButton = await this.page.$(selector);
+                    if (signInButton) {
+                        console.log(`🖱️ Found sign-in button with selector: ${selector}`);
+                        await signInButton.click();
+                        console.log('✅ Clicked sign-in button');
+                        
+                        // Wait for the sign-in process
+                        await new Promise(resolve => setTimeout(resolve, 3000));
+                        
+                        // Check if challenge is resolved
+                        const stillHasChallenge = await this.checkForBotVerification();
+                        if (!stillHasChallenge) {
+                            console.log('✅ Bot challenge resolved automatically!');
+                            return true;
+                        } else {
+                            console.log('⚠️ Bot challenge still present after clicking sign-in');
+                        }
+                    }
+                } catch (error) {
+                    console.log(`⚠️ Error with selector ${selector}:`, error.message);
+                }
+            }
+            
+            console.log('❌ Could not automatically resolve bot challenge');
+            return false;
+            
+        } catch (error) {
+            console.error('❌ Error in auto-resolution attempt:', error);
+            return false;
+        }
+    }
+
+    async resolveBotChallenge(message) {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                await message.reply('❌ Page is not available');
+                return;
+            }
+
+            // Check if challenge is still present
+            const hasBotChallenge = await this.checkForBotVerification();
+            
+            if (hasBotChallenge) {
+                // Try to automatically click the sign-in button
+                await message.reply('🤖 Attempting to automatically resolve bot challenge...');
+                
+                const resolved = await this.attemptAutoResolveBotChallenge();
+                
+                if (resolved) {
+                    await message.reply('✅ Bot challenge resolved automatically!');
+                } else {
+                    await message.reply('⚠️ Could not automatically resolve bot challenge. Manual intervention may be required.');
+                    return;
+                }
+            }
+
+            // Challenge seems to be resolved, try to continue
+            await message.reply('✅ Bot challenge appears to be resolved. Attempting to continue...');
+            
+            // Handle overlays and start video
+            await this.handleYouTubeOverlays();
+            await this.startVideo();
+            
+            await message.reply('✅ Successfully continued after bot challenge resolution!');
+            
+        } catch (error) {
+            console.error('❌ Error resolving bot challenge:', error);
+            await message.reply('❌ Error resolving bot challenge: ' + error.message);
         }
     }
 
@@ -524,19 +703,40 @@ class ASTDXBannerBot {
         try {
             console.log('🔄 Refreshing page...');
             
-            // Refresh the page with faster timeout
-            await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 8000 });
+            // Check if page and browser are still valid
+            if (!this.page || !this.browser) {
+                console.log('⚠️ Page or browser not available, cannot refresh');
+                return;
+            }
+
+            // Check if page is still attached to browser
+            if (this.page.isClosed()) {
+                console.log('⚠️ Page is closed, cannot refresh');
+                return;
+            }
             
-            // Wait less for page to load
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Handle overlays again
-            await this.handleYouTubeOverlays();
-            
-            // Try to start video again
-            await this.startVideo();
-            
-            console.log('✅ Page refreshed successfully');
+            try {
+                // Refresh the page with faster timeout
+                await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 8000 });
+                
+                // Wait less for page to load
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Handle overlays again
+                await this.handleYouTubeOverlays();
+                
+                // Try to start video again
+                await this.startVideo();
+                
+                console.log('✅ Page refreshed successfully');
+                
+            } catch (error) {
+                if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                    console.log('⚠️ Execution context was destroyed during page refresh');
+                    return;
+                }
+                throw error;
+            }
             
         } catch (error) {
             console.error('❌ Failed to refresh page:', error);
@@ -546,43 +746,58 @@ class ASTDXBannerBot {
 
     async clearOverlaysBeforeCapture() {
         try {
-            // More aggressive overlay clearing before capture
-            await this.page.evaluate(() => {
-                // Hide all possible overlays
-                const selectors = [
-                    '[role="dialog"]', '.modal', '.popup', '.overlay', 
-                    '.ytp-popup', '.ytp-pause-overlay', '.ytp-gradient-top', 
-                    '.ytp-gradient-bottom', '.backdrop', '.modal-backdrop',
-                    '.overlay-backdrop', '.ytp-chrome-top', '.ytp-chrome-bottom'
-                ];
-                
-                selectors.forEach(selector => {
-                    const elements = document.querySelectorAll(selector);
-                    elements.forEach(el => {
-                        el.style.display = 'none';
-                        el.style.visibility = 'hidden';
-                        el.style.opacity = '0';
-                        el.style.pointerEvents = 'none';
+            // Check if page and browser are still valid
+            if (!this.page || !this.browser || this.page.isClosed()) {
+                console.log('⚠️ Page not available, skipping overlay clearing');
+                return;
+            }
+
+            try {
+                // More aggressive overlay clearing before capture
+                await this.page.evaluate(() => {
+                    // Hide all possible overlays
+                    const selectors = [
+                        '[role="dialog"]', '.modal', '.popup', '.overlay', 
+                        '.ytp-popup', '.ytp-pause-overlay', '.ytp-gradient-top', 
+                        '.ytp-gradient-bottom', '.backdrop', '.modal-backdrop',
+                        '.overlay-backdrop', '.ytp-chrome-top', '.ytp-chrome-bottom'
+                    ];
+                    
+                    selectors.forEach(selector => {
+                        const elements = document.querySelectorAll(selector);
+                        elements.forEach(el => {
+                            el.style.display = 'none';
+                            el.style.visibility = 'hidden';
+                            el.style.opacity = '0';
+                            el.style.pointerEvents = 'none';
+                        });
                     });
+                    
+                    // Remove any fixed positioned elements that might be overlays
+                    const fixedElements = document.querySelectorAll('[style*="position: fixed"]');
+                    fixedElements.forEach(el => {
+                        const rect = el.getBoundingClientRect();
+                        // If it's covering a large area, hide it
+                        if (rect.width > 200 && rect.height > 100) {
+                            el.style.display = 'none';
+                        }
+                    });
+                    
+                    // Ensure body is scrollable
+                    document.body.style.overflow = 'auto';
+                    document.documentElement.style.overflow = 'auto';
                 });
                 
-                // Remove any fixed positioned elements that might be overlays
-                const fixedElements = document.querySelectorAll('[style*="position: fixed"]');
-                fixedElements.forEach(el => {
-                    const rect = el.getBoundingClientRect();
-                    // If it's covering a large area, hide it
-                    if (rect.width > 200 && rect.height > 100) {
-                        el.style.display = 'none';
-                    }
-                });
+                // Wait less for overlays to close
+                await new Promise(resolve => setTimeout(resolve, 500));
                 
-                // Ensure body is scrollable
-                document.body.style.overflow = 'auto';
-                document.documentElement.style.overflow = 'auto';
-            });
-            
-            // Wait less for overlays to close
-            await new Promise(resolve => setTimeout(resolve, 500));
+            } catch (error) {
+                if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                    console.log('⚠️ Execution context was destroyed during overlay clearing');
+                    return;
+                }
+                throw error;
+            }
             
         } catch (error) {
             console.log('Could not clear overlays:', error.message);
@@ -778,6 +993,44 @@ class ASTDXBannerBot {
                 this.isRunning = true;
                 this.monitorLoop();
             }
+        }
+    }
+
+    isBrowserContextValid() {
+        try {
+            return this.browser && 
+                   this.page && 
+                   !this.page.isClosed() && 
+                   this.browser.isConnected();
+        } catch (error) {
+            return false;
+        }
+    }
+
+    async restartBrowser() {
+        try {
+            console.log('🔄 Restarting browser...');
+            
+            // Close existing browser if it exists
+            if (this.browser) {
+                try {
+                    await this.browser.close();
+                } catch (error) {
+                    console.log('⚠️ Error closing browser:', error.message);
+                }
+                this.browser = null;
+                this.page = null;
+            }
+            
+            // Wait a moment before restarting
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Restart browser
+            await this.startMonitoring();
+            
+        } catch (error) {
+            console.error('❌ Failed to restart browser:', error);
+            await this.sendErrorToDiscord('Failed to restart browser: ' + error.message);
         }
     }
 
