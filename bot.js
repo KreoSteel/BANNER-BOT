@@ -67,13 +67,17 @@ class ASTDXBannerBot {
                 await this.testScreenshot();
             } else if (message.content === '!start-video') {
                 await this.startVideo();
-            } else if (message.content === '!check-bot-challenge') {
-                await this.checkBotChallengeStatus(message);
-            } else if (message.content === '!resolve-challenge') {
-                await this.resolveBotChallenge(message);
+            } else if (message.content === '!check-video') {
+                await this.checkVideoStatus(message);
             } else if (message.content === '!restart-browser') {
                 await this.restartBrowser();
                 await message.reply('🔄 Browser restarted!');
+            } else if (message.content === '!skip-ads') {
+                console.log('⏩ Manual ad skip triggered');
+                await this.skipYouTubeAds();
+                await message.reply('⏩ Ad skip attempt completed!');
+            } else if (message.content === '!check-ads') {
+                await this.checkForAds(message);
             }
         });
     }
@@ -181,18 +185,287 @@ class ASTDXBannerBot {
 
     async skipYouTubeAds() {
         try {
-            // Try to click the "Skip Ad" button if it appears
-            const skipBtn = await this.page.$('.ytp-ad-skip-button, .ytp-ad-skip-button-modern');
-            if (skipBtn) {
-                await skipBtn.click();
-                console.log('⏩ Skipped ad!');
-                // Wait a moment for ad to disappear
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            console.log('🔍 Checking for YouTube ads to skip...');
+            
+            // Check if page and browser are still valid
+            if (!this.page || !this.browser || this.page.isClosed()) {
+                console.log('⚠️ Page not available, skipping ad detection');
+                return;
             }
-        } catch (e) {
-            // No skip button found, do nothing
+
+            const adInfo = await this.page.evaluate(() => {
+                // Comprehensive ad detection selectors
+                const adSelectors = [
+                    // YouTube video ads
+                    '.ytp-ad-skip-button',
+                    '.ytp-ad-skip-button-modern',
+                    '.ytp-ad-overlay-close-button',
+                    '.ytp-ad-feedback-dialog-close-button',
+                    '.ytp-ad-feedback-dialog-container',
+                    
+                    // Display ads
+                    '[class*="ytp-ad"]',
+                    '[class*="ytpAd"]',
+                    '[class*="videoAd"]',
+                    '[class*="VideoAd"]',
+                    '[class*="displayAd"]',
+                    '[class*="DisplayAd"]',
+                    
+                    // Generic ad selectors
+                    '[class*="ad"]:not([class*="load"]):not([class*="add"])',
+                    '[class*="Ad"]:not([class*="load"]):not([class*="add"])',
+                    '[class*="sponsored"]',
+                    '[class*="Sponsored"]',
+                    '[class*="promotion"]',
+                    '[class*="Promotion"]',
+                    '[data-ad]',
+                    '[data-ads]',
+                    
+                    // Overlay ads
+                    '.ytp-ad-overlay',
+                    '.ytp-ad-overlay-container',
+                    '.ytp-ad-overlay-slot',
+                    
+                    // Ad feedback and controls
+                    '.ytp-ad-feedback-dialog',
+                    '.ytp-ad-feedback-dialog-container',
+                    '.ytp-ad-feedback-dialog-close-button'
+                ];
+
+                let foundAds = [];
+                let skipButtons = [];
+                let adOverlays = [];
+
+                // Check for skip buttons first
+                const skipButtonSelectors = [
+                    '.ytp-ad-skip-button',
+                    '.ytp-ad-skip-button-modern',
+                    'button[aria-label*="Skip"]',
+                    'button[aria-label*="skip"]',
+                    'button[title*="Skip"]',
+                    'button[title*="skip"]'
+                ];
+
+                skipButtonSelectors.forEach(selector => {
+                    const buttons = document.querySelectorAll(selector);
+                    buttons.forEach(button => {
+                        const rect = button.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0 && 
+                            rect.top >= 0 && rect.left >= 0 && 
+                            rect.bottom <= window.innerHeight && rect.right <= window.innerWidth) {
+                            skipButtons.push({
+                                selector: selector,
+                                text: button.textContent.trim(),
+                                visible: true,
+                                position: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+                            });
+                        }
+                    });
+                });
+
+                // Check for ad overlays
+                adSelectors.forEach(selector => {
+                    const ads = document.querySelectorAll(selector);
+                    ads.forEach(ad => {
+                        const rect = ad.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            const isVisible = rect.top >= 0 && rect.left >= 0 && 
+                                            rect.bottom <= window.innerHeight && rect.right <= window.innerWidth;
+                            
+                            foundAds.push({
+                                selector: selector,
+                                text: ad.textContent.substring(0, 100).trim(),
+                                visible: isVisible,
+                                position: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+                            });
+
+                            // Check if it's an overlay that should be closed
+                            if (isVisible && (selector.includes('overlay') || selector.includes('dialog'))) {
+                                adOverlays.push({
+                                    selector: selector,
+                                    text: ad.textContent.substring(0, 50).trim(),
+                                    position: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+                                });
+                            }
+                        }
+                    });
+                });
+
+                // Check for ad-related text in buttons
+                const allButtons = document.querySelectorAll('button');
+                const adButtons = Array.from(allButtons).filter(button => {
+                    const buttonText = button.textContent.toLowerCase();
+                    const adKeywords = ['skip', 'ad', 'sponsored', 'learn more', 'visit', 'close', 'x'];
+                    return adKeywords.some(keyword => buttonText.includes(keyword));
+                });
+
+                adButtons.forEach(button => {
+                    const rect = button.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        const isVisible = rect.top >= 0 && rect.left >= 0 && 
+                                        rect.bottom <= window.innerHeight && rect.right <= window.innerWidth;
+                        
+                        if (isVisible && !skipButtons.some(sb => sb.selector === button.tagName.toLowerCase())) {
+                            skipButtons.push({
+                                selector: 'button[ad-related]',
+                                text: button.textContent.trim(),
+                                visible: true,
+                                position: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+                            });
+                        }
+                    }
+                });
+
+                return {
+                    skipButtons: skipButtons,
+                    adOverlays: adOverlays,
+                    allAds: foundAds,
+                    hasSkipButtons: skipButtons.length > 0,
+                    hasAdOverlays: adOverlays.length > 0,
+                    hasAds: foundAds.length > 0
+                };
+            });
+
+            // Handle skip buttons
+            if (adInfo.hasSkipButtons) {
+                console.log(`⏩ Found ${adInfo.skipButtons.length} skip button(s)`);
+                
+                for (const skipButton of adInfo.skipButtons) {
+                    try {
+                        const button = await this.page.$(skipButton.selector);
+                        if (button) {
+                            console.log(`🖱️ Clicking skip button: "${skipButton.text}"`);
+                            await button.click();
+                            console.log('✅ Skip button clicked successfully');
+                            
+                            // Wait for ad to disappear
+                            await new Promise(resolve => setTimeout(resolve, 1500));
+                            
+                            // Check if ad is still there
+                            const stillHasAds = await this.page.evaluate(() => {
+                                return document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern') !== null;
+                            });
+                            
+                            if (!stillHasAds) {
+                                console.log('✅ Ad successfully skipped');
+                                break;
+                            }
+                        }
+                    } catch (error) {
+                        console.log(`⚠️ Error clicking skip button: ${error.message}`);
+                    }
+                }
+            }
+
+            // Handle ad overlays
+            if (adInfo.hasAdOverlays) {
+                console.log(`🚫 Found ${adInfo.adOverlays.length} ad overlay(s) to close`);
+                
+                for (const overlay of adInfo.adOverlays) {
+                    try {
+                        // Try to find and click close buttons in overlays
+                        const closeButtons = await this.page.$$(`${overlay.selector} button, ${overlay.selector} [aria-label*="Close"], ${overlay.selector} [aria-label*="close"]`);
+                        
+                        for (const closeButton of closeButtons) {
+                            try {
+                                await closeButton.click();
+                                console.log(`✅ Closed ad overlay: "${overlay.text}"`);
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                            } catch (error) {
+                                console.log(`⚠️ Error closing overlay: ${error.message}`);
+                            }
+                        }
+                    } catch (error) {
+                        console.log(`⚠️ Error handling overlay: ${error.message}`);
+                    }
+                }
+            }
+
+            // Report results
+            if (adInfo.hasAds) {
+                console.log(`📊 Ad detection summary: ${adInfo.allAds.length} ad elements found`);
+                if (adInfo.hasSkipButtons) {
+                    console.log(`⏩ ${adInfo.skipButtons.length} skip button(s) processed`);
+                }
+                if (adInfo.hasAdOverlays) {
+                    console.log(`🚫 ${adInfo.adOverlays.length} overlay(s) processed`);
+                }
+            } else {
+                console.log('✅ No ads detected');
+            }
+
+        } catch (error) {
+            if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                console.log('⚠️ Execution context was destroyed during ad skipping');
+                return;
+            }
+            console.error('❌ Error in skipYouTubeAds:', error);
         }
     }
+
+    async checkForAds(message) {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                await message.reply('❌ Page is not available');
+                return;
+            }
+
+            const adInfo = await this.page.evaluate(() => {
+                const adSelectors = [
+                    '.ytp-ad-skip-button',
+                    '.ytp-ad-skip-button-modern',
+                    '.ytp-ad-overlay',
+                    '[class*="ytp-ad"]',
+                    '[class*="ad"]:not([class*="load"]):not([class*="add"])',
+                    '[class*="sponsored"]',
+                    '[data-ad]',
+                    '[data-ads]'
+                ];
+
+                let foundAds = [];
+                adSelectors.forEach(selector => {
+                    const ads = document.querySelectorAll(selector);
+                    ads.forEach(ad => {
+                        const rect = ad.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            foundAds.push({
+                                selector: selector,
+                                text: ad.textContent.substring(0, 50),
+                                visible: rect.top >= 0 && rect.left >= 0 && 
+                                        rect.bottom <= window.innerHeight && rect.right <= window.innerWidth,
+                                position: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+                            });
+                        }
+                    });
+                });
+
+                return {
+                    adElements: foundAds,
+                    hasAds: foundAds.length > 0,
+                    visibleAds: foundAds.filter(ad => ad.visible).length
+                };
+            });
+
+            let statusMessage = `🛡️ **Ad Detection Results:**\n`;
+            statusMessage += `• Total ads detected: ${adInfo.adElements.length}\n`;
+            statusMessage += `• Visible ads: ${adInfo.visibleAds}\n`;
+            statusMessage += `• Has ads: ${adInfo.hasAds ? '❌ Yes' : '✅ No'}\n`;
+            
+            if (adInfo.adElements.length > 0) {
+                statusMessage += `\n**Ad Details:**\n`;
+                adInfo.adElements.slice(0, 5).forEach((ad, index) => {
+                    statusMessage += `${index + 1}. ${ad.selector} - "${ad.text}" ${ad.visible ? '(Visible)' : '(Hidden)'}\n`;
+                });
+            }
+
+            await message.reply(statusMessage);
+        } catch (error) {
+            console.error('❌ Error checking for ads:', error);
+            await message.reply('❌ Error checking for ads: ' + error.message);
+        }
+    }
+
+
 
     async handleYouTubeOverlays() {
         try {
@@ -212,25 +485,6 @@ class ASTDXBannerBot {
             
             // Wait for overlays to load
             await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            // Check for bot verification challenge first
-            const hasBotChallenge = await this.checkForBotVerification();
-            if (hasBotChallenge) {
-                console.log('🤖 Bot verification challenge detected! Attempting to resolve...');
-                await this.sendErrorToDiscord('Bot verification challenge detected! Attempting automatic resolution...');
-                
-                // Try to automatically resolve the challenge
-                await this.attemptAutoResolveBotChallenge();
-                
-                // Check if challenge is still present after attempt
-                const stillHasChallenge = await this.checkForBotVerification();
-                if (stillHasChallenge) {
-                    console.log('⚠️ Bot challenge still present after auto-resolution attempt');
-                    return;
-                } else {
-                    console.log('✅ Bot challenge resolved automatically!');
-                }
-            }
             
             try {
                 // More targeted popup handling - avoid affecting video elements
@@ -315,61 +569,134 @@ class ASTDXBannerBot {
             }
 
             // Check if page is still attached to browser
-            if (!this.page.isClosed()) {
-                try {
-                    // Wait a moment for page to load
-                    await new Promise(resolve => setTimeout(resolve, 2000));
+            if (this.page.isClosed()) {
+                console.log('⚠️ Page is closed, skipping video start');
+                return;
+            }
 
-                    // Try clicking play buttons directly
-                    console.log('🔍 Looking for play buttons...');
-                    const playButtonSelectors = [
-                        '.ytp-large-play-button',
-                        '.ytp-play-button',
-                        'button[aria-label*="Play"]',
-                        'button[aria-label*="play"]'
-                    ];
+            try {
+                // Wait for a video element to appear (timeout after 5 seconds)
+                await this.page.waitForSelector('video', { timeout: 5000 });
+                await new Promise(resolve => setTimeout(resolve, 300)); // Let the video load
 
-                    for (const selector of playButtonSelectors) {
+                // Try to play the video using the video element's play() method
+                const played = await this.page.evaluate(async () => {
+                    const video = document.querySelector('video');
+                    if (video) {
                         try {
-                            // Check if page is still valid before each operation
-                            if (this.page.isClosed()) {
-                                console.log('⚠️ Page was closed during video start attempt');
-                                return;
-                            }
-
-                            const button = await this.page.$(selector);
-                            if (button) {
-                                console.log(`🖱️ Clicking play button: ${selector}`);
-                                await button.click();
-                                console.log(`✅ Clicked play button: ${selector}`);
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                                break;
-                            }
-                        } catch (error) {
-                            if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
-                                console.log(`⚠️ Context destroyed while clicking ${selector}, skipping`);
-                                return;
-                            }
-                            console.log(`⚠️ Error with play button ${selector}:`, error.message);
+                            await video.play();
+                            return !video.paused;
+                        } catch (e) {
+                            // If play() fails (e.g., due to overlay), return false
+                            return false;
                         }
                     }
+                    return false;
+                });
 
-                    console.log('✅ Video start attempt completed');
-
-                } catch (error) {
-                    if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
-                        console.log('⚠️ Execution context was destroyed during video start');
-                        return;
-                    }
-                    throw error;
+                if (played) {
+                    console.log('✅ Video started via video.play()');
+                    return;
                 }
-            } else {
-                console.log('⚠️ Page is closed, skipping video start');
+
+                // If not playing, try clicking the overlay play button
+                console.log('🔍 Looking for play buttons...');
+                const playButtonSelectors = [
+                    '.ytp-large-play-button', // YouTube's big play button
+                    '.ytp-play-button',
+                    'button[aria-label*="Play"]',
+                    'button[aria-label*="play"]'
+                ];
+                
+                for (const selector of playButtonSelectors) {
+                    try {
+                        // Check if page is still valid before each operation
+                        if (this.page.isClosed()) {
+                            console.log('⚠️ Page was closed during video start attempt');
+                            return;
+                        }
+
+                        const button = await this.page.$(selector);
+                        if (button) {
+                            console.log(`🖱️ Clicking play button: ${selector}`);
+                            await button.click();
+                            console.log(`✅ Clicked play button: ${selector}`);
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+                            break;
+                        }
+                    } catch (error) {
+                        if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                            console.log(`⚠️ Context destroyed while clicking ${selector}, skipping`);
+                            return;
+                        }
+                        console.log(`⚠️ Error with play button ${selector}:`, error.message);
+                    }
+                }
+
+                // Fallback: click the center of the video area
+                const videoBox = await this.page.$('video');
+                if (videoBox) {
+                    const box = await videoBox.boundingBox();
+                    if (box) {
+                        await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+                        console.log('🖱️ Clicked center of video area');
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                    }
+                }
+
+                console.log('✅ Video start attempt completed');
+
+            } catch (error) {
+                if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                    console.log('⚠️ Execution context was destroyed during video start');
+                    return;
+                }
+                throw error;
             }
 
         } catch (error) {
             console.error('❌ Error starting video:', error);
-            console.log('⚠️ Continuing with monitoring despite video start error...');
+        }
+    }
+
+    async checkVideoStatus(message) {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                await message.reply('❌ Page is not available');
+                return;
+            }
+
+            const videoStatus = await this.page.evaluate(() => {
+                const video = document.querySelector('video');
+                if (!video) {
+                    return { exists: false, playing: false, paused: false, currentTime: 0, duration: 0 };
+                }
+                
+                return {
+                    exists: true,
+                    playing: !video.paused,
+                    paused: video.paused,
+                    currentTime: video.currentTime,
+                    duration: video.duration,
+                    readyState: video.readyState
+                };
+            });
+
+            let statusMessage = `📺 **Video Status:**\n`;
+            statusMessage += `• Video element exists: ${videoStatus.exists ? '✅ Yes' : '❌ No'}\n`;
+            
+            if (videoStatus.exists) {
+                statusMessage += `• Video playing: ${videoStatus.playing ? '✅ Yes' : '❌ No'}\n`;
+                statusMessage += `• Video paused: ${videoStatus.paused ? '❌ Yes' : '✅ No'}\n`;
+                statusMessage += `• Current time: ${videoStatus.currentTime.toFixed(2)}s\n`;
+                statusMessage += `• Duration: ${videoStatus.duration.toFixed(2)}s\n`;
+                statusMessage += `• Ready state: ${videoStatus.readyState}\n`;
+            }
+
+            await message.reply(statusMessage);
+        } catch (error) {
+            console.error('❌ Error checking video status:', error);
+            await message.reply('❌ Error checking video status: ' + error.message);
         }
     }
 
@@ -412,9 +739,9 @@ class ASTDXBannerBot {
                     await this.captureYBanner();
                     this.lastYBannerTime = Date.now();
                     
-                    // Wait 8 seconds between captures
-                    console.log('⏳ Waiting 8 seconds between banner captures...');
-                    await new Promise(resolve => setTimeout(resolve, 8000));
+                    // Wait 10 seconds between captures to ensure banner switch
+                    console.log('⏳ Waiting 20 seconds between banner captures...');
+                    await new Promise(resolve => setTimeout(resolve, 20000));
                     
                     // Capture X Banner
                     await this.captureXBanner();
@@ -435,9 +762,9 @@ class ASTDXBannerBot {
                     await this.captureXBanner();
                     this.lastXBannerTime = Date.now();
                     
-                    // Wait 8 seconds between captures
-                    console.log('⏳ Waiting 8 seconds between banner captures...');
-                    await new Promise(resolve => setTimeout(resolve, 8000));
+                    // Wait 10 seconds between captures to ensure banner switch
+                    console.log('⏳ Waiting 10 seconds between banner captures...');
+                    await new Promise(resolve => setTimeout(resolve, 10000));
                     
                     // Capture Y Banner
                     await this.captureYBanner();
@@ -463,190 +790,13 @@ class ASTDXBannerBot {
         }
     }
 
-    async checkForBotVerification() {
-        try {
-            if (!this.page || this.page.isClosed()) {
-                return false;
-            }
 
-            const hasBotChallenge = await this.page.evaluate(() => {
-                // Check for bot verification challenges
-                const botChallengeSelectors = [
-                    'div[class*="bot"]',
-                    'div[class*="Bot"]',
-                    'div[class*="verification"]',
-                    'div[class*="Verification"]',
-                    'div[class*="captcha"]',
-                    'div[class*="Captcha"]',
-                    'div[class*="challenge"]',
-                    'div[class*="Challenge"]'
-                ];
-                
-                // Check for specific bot verification text
-                const bodyText = document.body.textContent.toLowerCase();
-                const botVerificationKeywords = [
-                    'sign in to confirm you\'re not a bot',
-                    'confirm you\'re not a bot',
-                    'verify you\'re not a bot',
-                    'prove you\'re not a bot',
-                    'bot verification',
-                    'captcha',
-                    'challenge'
-                ];
-                
-                // Check if any bot verification keywords are present
-                for (const keyword of botVerificationKeywords) {
-                    if (bodyText.includes(keyword)) {
-                        return true;
-                    }
-                }
-                
-                // Check for specific elements that might contain bot verification
-                for (const selector of botChallengeSelectors) {
-                    const elements = document.querySelectorAll(selector);
-                    for (const element of elements) {
-                        const text = element.textContent.toLowerCase();
-                        for (const keyword of botVerificationKeywords) {
-                            if (text.includes(keyword)) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-                
-                // Check for "Sign in" buttons that might be part of bot verification
-                const signInButtons = document.querySelectorAll('button');
-                for (const button of signInButtons) {
-                    const text = button.textContent.toLowerCase();
-                    if (text.includes('sign in') && bodyText.includes('bot')) {
-                        return true;
-                    }
-                }
-                
-                return false;
-            });
-            
-            return hasBotChallenge;
-        } catch (error) {
-            console.error('❌ Error checking for bot verification:', error);
-            return false;
-        }
-    }
 
-    async checkBotChallengeStatus(message) {
-        try {
-            if (!this.page || this.page.isClosed()) {
-                await message.reply('❌ Page is not available');
-                return;
-            }
 
-            const hasBotChallenge = await this.checkForBotVerification();
-            
-            if (hasBotChallenge) {
-                // Take a screenshot of the challenge
-                const screenshot = await this.page.screenshot({ fullPage: true });
-                await this.sendToDiscord(screenshot, 'Bot Challenge Detected', '🤖 Bot verification challenge detected! Use `!resolve-challenge` after manually solving it.');
-                await message.reply('🤖 Bot verification challenge detected! Check the screenshot above. Solve it manually and then use `!resolve-challenge`');
-            } else {
-                await message.reply('✅ No bot verification challenge detected');
-            }
-        } catch (error) {
-            console.error('❌ Error checking bot challenge status:', error);
-            await message.reply('❌ Error checking bot challenge status: ' + error.message);
-        }
-    }
 
-    async attemptAutoResolveBotChallenge() {
-        try {
-            if (!this.page || this.page.isClosed()) {
-                console.log('❌ Page not available for auto-resolution');
-                return false;
-            }
 
-            console.log('🤖 Attempting to automatically resolve bot challenge...');
-            
-            // Try multiple selectors for the sign-in button
-            const signInSelectors = [
-                'button:has-text("Sign in")',
-                'button[aria-label*="Sign in"]',
-                'button:contains("Sign in")',
-                'button[data-text="Sign in"]',
-                'button[class*="sign-in"]',
-                'button[class*="SignIn"]'
-            ];
-            
-            for (const selector of signInSelectors) {
-                try {
-                    const signInButton = await this.page.$(selector);
-                    if (signInButton) {
-                        console.log(`🖱️ Found sign-in button with selector: ${selector}`);
-                        await signInButton.click();
-                        console.log('✅ Clicked sign-in button');
-                        
-                        // Wait for the sign-in process
-                        await new Promise(resolve => setTimeout(resolve, 3000));
-                        
-                        // Check if challenge is resolved
-                        const stillHasChallenge = await this.checkForBotVerification();
-                        if (!stillHasChallenge) {
-                            console.log('✅ Bot challenge resolved automatically!');
-                            return true;
-                        } else {
-                            console.log('⚠️ Bot challenge still present after clicking sign-in');
-                        }
-                    }
-                } catch (error) {
-                    console.log(`⚠️ Error with selector ${selector}:`, error.message);
-                }
-            }
-            
-            console.log('❌ Could not automatically resolve bot challenge');
-            return false;
-            
-        } catch (error) {
-            console.error('❌ Error in auto-resolution attempt:', error);
-            return false;
-        }
-    }
 
-    async resolveBotChallenge(message) {
-        try {
-            if (!this.page || this.page.isClosed()) {
-                await message.reply('❌ Page is not available');
-                return;
-            }
 
-            // Check if challenge is still present
-            const hasBotChallenge = await this.checkForBotVerification();
-            
-            if (hasBotChallenge) {
-                // Try to automatically click the sign-in button
-                await message.reply('🤖 Attempting to automatically resolve bot challenge...');
-                
-                const resolved = await this.attemptAutoResolveBotChallenge();
-                
-                if (resolved) {
-                    await message.reply('✅ Bot challenge resolved automatically!');
-                } else {
-                    await message.reply('⚠️ Could not automatically resolve bot challenge. Manual intervention may be required.');
-                    return;
-                }
-            }
-
-            // Challenge seems to be resolved, try to continue
-            await message.reply('✅ Bot challenge appears to be resolved. Attempting to continue...');
-            
-            // Handle overlays and start video
-            await this.handleYouTubeOverlays();
-            await this.startVideo();
-            
-            await message.reply('✅ Successfully continued after bot challenge resolution!');
-            
-        } catch (error) {
-            console.error('❌ Error resolving bot challenge:', error);
-            await message.reply('❌ Error resolving bot challenge: ' + error.message);
-        }
-    }
 
     async checkForYouTubeError() {
         try {
@@ -953,8 +1103,8 @@ class ASTDXBannerBot {
             // Send X Banner screenshot to Discord
             await this.sendToDiscord(xBannerScreenshot, 'Test X Banner', `🧪 Test capture - X Banner area (${xBannerVisible ? 'Visible' : 'Not visible'})`);
             
-            console.log('⏳ Waiting 8 seconds before capturing Y Banner...');
-            await new Promise(resolve => setTimeout(resolve, 8000));
+            console.log('⏳ Waiting 20 seconds before capturing Y Banner...');
+            await new Promise(resolve => setTimeout(resolve, 20000));
             
             // Check if Y Banner area is visible (like main functions)
             const yBannerVisible = await this.page.evaluate((area) => {
@@ -1070,6 +1220,10 @@ class ASTDXBannerBot {
             console.error('❌ Error during screenshot cleanup:', error);
         }
     }
+
+
+
+
 
     async start() {
         try {

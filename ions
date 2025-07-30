@@ -1,0 +1,5 @@
+[33m1c8fa91[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Merge branch 'main' of https://github.com/KreoSteel/BANNER-BOT
+[33m17a0285[m Refactor bot.js to import dotenv correctly and set a realistic user agent for the browser to improve bot detection avoidance.
+[33mcf2e705[m Implement bot challenge handling in bot.js, adding commands for checking and resolving bot verification challenges, enhancing overlay management, and improving browser context validation and restart logic.
+[33me81a1f6[m Enhance bot.js with automatic resolution for bot verification challenges. Implemented a method to attempt auto-resolution by clicking sign-in buttons using multiple selectors, improving user feedback and error handling during the process.
+[33m07b1355[m Revert browser launch to headless mode in bot.js for improved server compatibility.
