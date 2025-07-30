@@ -12,13 +12,13 @@
         "setup-adblocker": "node setup-adblocker.js"
     },
     "dependencies": {
-        "discord.js": "^14.14.1",
-        "puppeteer": "^21.6.1",
-        "dotenv": "^16.3.1"
+        "discord.js": "^14.15.0",
+        "dotenv": "^16.4.5",
+        "puppeteer": "^22.8.0"
     },
     "devDependencies": {
-        "nodemon": "^3.0.2",
-        "eslint": "^8.57.0"
+        "eslint": "^9.15.0",
+        "nodemon": "^3.1.0"
     },
     "engines": {
         "node": ">=18.0.0"
