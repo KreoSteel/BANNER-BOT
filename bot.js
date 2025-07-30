@@ -90,6 +90,7 @@ class ASTDXBannerBot {
             const userDataDir = './browser-data';
             
             this.browser = await puppeteer.launch({
+                executablePath: '/usr/bin/chromium-browser',
                 headless: 'new', // Back to headless for server compatibility
                 userDataDir: userDataDir,
                 args: [
@@ -108,7 +109,22 @@ class ASTDXBannerBot {
                     '--disable-backgrounding-occluded-windows',
                     '--disable-renderer-backgrounding',
                     '--memory-pressure-off',
-                    '--max_old_space_size=512'
+                    '--max_old_space_size=512',
+                    // Additional EC2 optimizations
+                    '--disable-background-networking',
+                    '--disable-default-apps',
+                    '--disable-extensions',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--hide-scrollbars',
+                    '--mute-audio',
+                    '--no-default-browser-check',
+                    '--no-pings',
+                    '--disable-plugins',
+                    '--disable-background-media-suspend',
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection'
                 ]
             });
 
@@ -127,17 +143,67 @@ class ASTDXBannerBot {
             // await this.initializeTesseract(); // Removed as per edit hint
             
             console.log('📺 Loading livestream...');
-            await this.page.goto(this.config.livestreamUrl, { 
-                waitUntil: 'networkidle2',
-                timeout: 30000 
-            });
+            
+            // Try multiple times with different strategies for EC2 compatibility
+            let pageLoaded = false;
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (!pageLoaded && attempts < maxAttempts) {
+                attempts++;
+                console.log(`🔄 Loading attempt ${attempts}/${maxAttempts}...`);
+                
+                try {
+                    // Use different wait strategies based on attempt number
+                    const waitStrategy = attempts === 1 ? 'networkidle2' : 'domcontentloaded';
+                    const timeout = attempts === 1 ? 60000 : 90000; // Increase timeout for EC2
+                    
+                    console.log(`⏱️ Using ${waitStrategy} strategy with ${timeout}ms timeout...`);
+                    
+                    await this.page.goto(this.config.livestreamUrl, { 
+                        waitUntil: waitStrategy,
+                        timeout: timeout 
+                    });
+                    
+                    pageLoaded = true;
+                    console.log('✅ Page loaded successfully');
+                    
+                } catch (error) {
+                    console.log(`⚠️ Attempt ${attempts} failed: ${error.message}`);
+                    
+                    if (attempts < maxAttempts) {
+                        console.log('⏳ Waiting 5 seconds before retry...');
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                        
+                        // Try to close any existing page and create a new one
+                        try {
+                            if (this.page && !this.page.isClosed()) {
+                                await this.page.close();
+                            }
+                            this.page = await this.browser.newPage();
+                            await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                            await this.page.setViewport({ width: 1920, height: 1080 });
+                        } catch (pageError) {
+                            console.log('⚠️ Error recreating page:', pageError.message);
+                        }
+                    } else {
+                        throw error; // Re-throw the error if all attempts failed
+                    }
+                }
+            }
 
-            // Check if on the correct page
+            // Check if on the correct page with more lenient validation for EC2
             const currentUrl = this.page.url();
             console.log('📍 Current URL:', currentUrl);
             console.log('🎯 Target URL:', this.config.livestreamUrl);
             
-            if (!currentUrl.includes(this.config.livestreamUrl.split('?')[0])) {
+            // More lenient URL checking for EC2 (sometimes redirects happen)
+            const targetUrlBase = this.config.livestreamUrl.split('?')[0];
+            const isCorrectPage = currentUrl.includes(targetUrlBase) || 
+                                 currentUrl.includes('youtube.com') || 
+                                 currentUrl.includes('youtu.be');
+            
+            if (!isCorrectPage) {
                 console.error('❌ Not on the correct livestream page! Current URL:', currentUrl);
                 await this.sendErrorToDiscord('Not on the correct livestream page! Please check the livestream URL in the config.');
                 return;
@@ -145,11 +211,10 @@ class ASTDXBannerBot {
                 console.log('✅ On the correct livestream page.');
             }
 
-            // Check if we're on a YouTube page
+            // Check if we're on a YouTube page (more lenient for EC2)
             if (!currentUrl.includes('youtube.com') && !currentUrl.includes('youtu.be')) {
-                console.error('❌ Not on a YouTube page! Current URL:', currentUrl);
-                await this.sendErrorToDiscord('Not on a YouTube page! Please check the livestream URL.');
-                return;
+                console.log('⚠️ Not on a YouTube page, but continuing anyway for EC2 compatibility');
+                console.log('Current URL:', currentUrl);
             }
 
             // Handle YouTube consent popup and other overlays
@@ -169,7 +234,31 @@ class ASTDXBannerBot {
             
         } catch (error) {
             console.error('❌ Failed to start monitoring:', error);
-            await this.sendErrorToDiscord('Failed to start monitoring: ' + error.message);
+            
+            // More detailed error reporting for EC2 debugging
+            let errorMessage = 'Failed to start monitoring: ' + error.message;
+            
+            if (error.message.includes('TimeoutError')) {
+                errorMessage += '\n\nThis is likely due to slow EC2 performance. The bot will retry automatically.';
+                console.log('🔄 Will attempt to restart monitoring in 30 seconds...');
+                
+                // Schedule a retry
+                setTimeout(() => {
+                    console.log('🔄 Retrying monitoring start...');
+                    this.startMonitoring();
+                }, 30000);
+                
+            } else if (error.message.includes('Protocol error')) {
+                errorMessage += '\n\nBrowser connection issue. Will restart browser.';
+                console.log('🔄 Will restart browser in 10 seconds...');
+                
+                setTimeout(() => {
+                    console.log('🔄 Restarting browser...');
+                    this.restartBrowser();
+                }, 10000);
+            }
+            
+            await this.sendErrorToDiscord(errorMessage);
         }
     }
 
