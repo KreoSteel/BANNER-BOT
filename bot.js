@@ -178,8 +178,8 @@ class ASTDXBannerBot {
         try {
             console.log('🔧 Handling YouTube overlays...');
             
-            // Wait a bit for overlays to load
-            await new Promise(resolve => setTimeout(resolve, 3000));
+            // Wait less for overlays to load
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             // More aggressive popup handling
             await this.page.evaluate(() => {
@@ -211,8 +211,8 @@ class ASTDXBannerBot {
                 document.documentElement.style.overflow = 'auto';
             });
             
-            // Wait for changes to take effect
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Wait less for changes to take effect
+            await new Promise(resolve => setTimeout(resolve, 500));
             
             console.log('✅ YouTube overlays handled aggressively');
             
@@ -225,9 +225,9 @@ class ASTDXBannerBot {
         try {
             console.log('▶️ Attempting to start video...');
 
-            // Wait for a video element to appear (timeout after 10 seconds)
-            await this.page.waitForSelector('video', { timeout: 10000 });
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Let the video load
+            // Wait for a video element to appear (timeout after 5 seconds)
+            await this.page.waitForSelector('video', { timeout: 5000 });
+            await new Promise(resolve => setTimeout(resolve, 300)); // Let the video load
 
             // Try to play the video using the video element's play() method
             const played = await this.page.evaluate(async () => {
@@ -263,7 +263,7 @@ class ASTDXBannerBot {
                     await button.click();
                     clicked = true;
                     console.log(`🖱️ Clicked play button: ${selector}`);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await new Promise(resolve => setTimeout(resolve, 300));
                     break;
                 }
             }
@@ -276,7 +276,7 @@ class ASTDXBannerBot {
                     if (box) {
                         await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
                         console.log('🖱️ Clicked center of video area');
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        await new Promise(resolve => setTimeout(resolve, 300));
                     }
                 }
             }
@@ -330,8 +330,8 @@ class ASTDXBannerBot {
                     this.lastYBannerTime = Date.now();
                     
                     // Wait 8 seconds between captures
-                    console.log('⏳ Waiting 20 seconds between banner captures...');
-                    await new Promise(resolve => setTimeout(resolve, 20000));
+                    console.log('⏳ Waiting 8 seconds between banner captures...');
+                    await new Promise(resolve => setTimeout(resolve, 8000));
                     
                     // Capture X Banner
                     await this.captureXBanner();
@@ -375,15 +375,69 @@ class ASTDXBannerBot {
         }
     }
 
+    async checkForYouTubeError() {
+        try {
+            const isErrorPage = await this.page.evaluate(() => {
+                // Check for common YouTube error messages
+                const errorSelectors = [
+                    'div[class*="error"]',
+                    'div[class*="Error"]',
+                    'div[class*="problem"]',
+                    'div[class*="Problem"]',
+                    'div[class*="wrong"]',
+                    'div[class*="Wrong"]',
+                    'div[class*="sorry"]',
+                    'div[class*="Sorry"]',
+                    'div[class*="unavailable"]',
+                    'div[class*="Unavailable"]'
+                ];
+                
+                // Check if any error elements exist
+                for (const selector of errorSelectors) {
+                    const elements = document.querySelectorAll(selector);
+                    for (const element of elements) {
+                        const text = element.textContent.toLowerCase();
+                        if (text.includes('something went wrong') || 
+                            text.includes('something\'s wrong') ||
+                            text.includes('sorry') ||
+                            text.includes('error') ||
+                            text.includes('problem') ||
+                            text.includes('unavailable') ||
+                            text.includes('try again')) {
+                            return true;
+                        }
+                    }
+                }
+                
+                // Check for specific error text in the page
+                const bodyText = document.body.textContent.toLowerCase();
+                if (bodyText.includes('something went wrong') || 
+                    bodyText.includes('something\'s wrong') ||
+                    bodyText.includes('sorry, something went wrong') ||
+                    bodyText.includes('error occurred') ||
+                    bodyText.includes('try again later')) {
+                    return true;
+                }
+                
+                return false;
+            });
+            
+            return isErrorPage;
+        } catch (error) {
+            console.error('❌ Error checking for YouTube error:', error);
+            return false;
+        }
+    }
+
     async refreshPage() {
         try {
             console.log('🔄 Refreshing page...');
             
-            // Refresh the page
-            await this.page.reload({ waitUntil: 'networkidle2', timeout: 30000 });
+            // Refresh the page with faster timeout
+            await this.page.reload({ waitUntil: 'domcontentloaded', timeout: 8000 });
             
-            // Wait for page to load
-            await new Promise(resolve => setTimeout(resolve, 5000));
+            // Wait less for page to load
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
             // Handle overlays again
             await this.handleYouTubeOverlays();
@@ -436,8 +490,8 @@ class ASTDXBannerBot {
                 document.documentElement.style.overflow = 'auto';
             });
             
-            // Wait a moment for overlays to close
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            // Wait less for overlays to close
+            await new Promise(resolve => setTimeout(resolve, 500));
             
         } catch (error) {
             console.log('Could not clear overlays:', error.message);
@@ -590,8 +644,8 @@ class ASTDXBannerBot {
             // Send X Banner screenshot to Discord
             await this.sendToDiscord(xBannerScreenshot, 'Test X Banner', `🧪 Test capture - X Banner area (${xBannerVisible ? 'Visible' : 'Not visible'})`);
             
-            console.log('⏳ Waiting 20 seconds before capturing Y Banner...');
-            await new Promise(resolve => setTimeout(resolve, 20000));
+            console.log('⏳ Waiting 8 seconds before capturing Y Banner...');
+            await new Promise(resolve => setTimeout(resolve, 8000));
             
             // Check if Y Banner area is visible (like main functions)
             const yBannerVisible = await this.page.evaluate((area) => {
