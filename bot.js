@@ -67,6 +67,13 @@ class ASTDXBannerBot {
                 await this.testScreenshot();
             } else if (message.content === '!start-video') {
                 await this.startVideo();
+            } else if (message.content === '!check-bot-challenge') {
+                await this.checkBotChallengeStatus(message);
+            } else if (message.content === '!resolve-challenge') {
+                await this.resolveBotChallenge(message);
+            } else if (message.content === '!restart-browser') {
+                await this.restartBrowser();
+                await message.reply('🔄 Browser restarted!');
             }
         });
     }
@@ -79,7 +86,7 @@ class ASTDXBannerBot {
             const userDataDir = './browser-data';
             
             this.browser = await puppeteer.launch({
-                headless: 'new',
+                headless: false, // Changed to false so you can see and interact with the browser
                 userDataDir: userDataDir,
                 args: [
                     '--no-sandbox',
@@ -202,6 +209,14 @@ class ASTDXBannerBot {
             
             // Wait for overlays to load
             await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Check for bot verification challenge first
+            const hasBotChallenge = await this.checkForBotVerification();
+            if (hasBotChallenge) {
+                console.log('🤖 Bot verification challenge detected!');
+                await this.sendErrorToDiscord('Bot verification challenge detected! Manual intervention required.');
+                return;
+            }
             
             try {
                 // More targeted popup handling - avoid affecting video elements
@@ -431,6 +446,129 @@ class ASTDXBannerBot {
                     await new Promise(resolve => setTimeout(resolve, 5000)); // Wait before retrying
                 }
             }
+        }
+    }
+
+    async checkForBotVerification() {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                return false;
+            }
+
+            const hasBotChallenge = await this.page.evaluate(() => {
+                // Check for bot verification challenges
+                const botChallengeSelectors = [
+                    'div[class*="bot"]',
+                    'div[class*="Bot"]',
+                    'div[class*="verification"]',
+                    'div[class*="Verification"]',
+                    'div[class*="captcha"]',
+                    'div[class*="Captcha"]',
+                    'div[class*="challenge"]',
+                    'div[class*="Challenge"]'
+                ];
+                
+                // Check for specific bot verification text
+                const bodyText = document.body.textContent.toLowerCase();
+                const botVerificationKeywords = [
+                    'sign in to confirm you\'re not a bot',
+                    'confirm you\'re not a bot',
+                    'verify you\'re not a bot',
+                    'prove you\'re not a bot',
+                    'bot verification',
+                    'captcha',
+                    'challenge'
+                ];
+                
+                // Check if any bot verification keywords are present
+                for (const keyword of botVerificationKeywords) {
+                    if (bodyText.includes(keyword)) {
+                        return true;
+                    }
+                }
+                
+                // Check for specific elements that might contain bot verification
+                for (const selector of botChallengeSelectors) {
+                    const elements = document.querySelectorAll(selector);
+                    for (const element of elements) {
+                        const text = element.textContent.toLowerCase();
+                        for (const keyword of botVerificationKeywords) {
+                            if (text.includes(keyword)) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                
+                // Check for "Sign in" buttons that might be part of bot verification
+                const signInButtons = document.querySelectorAll('button');
+                for (const button of signInButtons) {
+                    const text = button.textContent.toLowerCase();
+                    if (text.includes('sign in') && bodyText.includes('bot')) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            });
+            
+            return hasBotChallenge;
+        } catch (error) {
+            console.error('❌ Error checking for bot verification:', error);
+            return false;
+        }
+    }
+
+    async checkBotChallengeStatus(message) {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                await message.reply('❌ Page is not available');
+                return;
+            }
+
+            const hasBotChallenge = await this.checkForBotVerification();
+            
+            if (hasBotChallenge) {
+                // Take a screenshot of the challenge
+                const screenshot = await this.page.screenshot({ fullPage: true });
+                await this.sendToDiscord(screenshot, 'Bot Challenge Detected', '🤖 Bot verification challenge detected! Use `!resolve-challenge` after manually solving it.');
+                await message.reply('🤖 Bot verification challenge detected! Check the screenshot above. Solve it manually and then use `!resolve-challenge`');
+            } else {
+                await message.reply('✅ No bot verification challenge detected');
+            }
+        } catch (error) {
+            console.error('❌ Error checking bot challenge status:', error);
+            await message.reply('❌ Error checking bot challenge status: ' + error.message);
+        }
+    }
+
+    async resolveBotChallenge(message) {
+        try {
+            if (!this.page || this.page.isClosed()) {
+                await message.reply('❌ Page is not available');
+                return;
+            }
+
+            // Check if challenge is still present
+            const hasBotChallenge = await this.checkForBotVerification();
+            
+            if (hasBotChallenge) {
+                await message.reply('🤖 Bot challenge is still present. Please solve it manually first, then try again.');
+                return;
+            }
+
+            // Challenge seems to be resolved, try to continue
+            await message.reply('✅ Bot challenge appears to be resolved. Attempting to continue...');
+            
+            // Handle overlays and start video
+            await this.handleYouTubeOverlays();
+            await this.startVideo();
+            
+            await message.reply('✅ Successfully continued after bot challenge resolution!');
+            
+        } catch (error) {
+            console.error('❌ Error resolving bot challenge:', error);
+            await message.reply('❌ Error resolving bot challenge: ' + error.message);
         }
     }
 
