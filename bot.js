@@ -56,7 +56,6 @@ class ASTDXBannerBot {
 
     // OCR helper to detect banner name from screenshot
     async ocrBannerName(imageBuffer) {
-        fs.writeFileSync(`./ocr_input_${Date.now()}.png`, imageBuffer); // Save every OCR input
         try {
             const { data: { text } } = await Tesseract.recognize(imageBuffer, 'eng', {
                 tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',
@@ -84,9 +83,6 @@ class ASTDXBannerBot {
                 console.log('❌ [X] Screenshot is null or failed.');
                 continue;
             }
-            console.log(`🖼️ [X] Screenshot size: ${xScreenshot.length} bytes`);
-            // After capturing screenshot in captureAndSendBanners
-            fs.writeFileSync(`./debug_xbanner_${Date.now()}.png`, xScreenshot);
 
             const xBannerName = await this.ocrBannerName(xScreenshot);
             console.log(`🔤 [X] OCR result: "${xBannerName}"`);
