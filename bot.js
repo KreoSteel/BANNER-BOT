@@ -84,6 +84,9 @@ class ASTDXBannerBot {
                 continue;
             }
 
+            // DEBUG: Save X banner screenshot to file
+            fs.writeFileSync(`./debug_xbanner_${Date.now()}.png`, xScreenshot);
+
             const xBannerName = await this.ocrBannerName(xScreenshot);
             console.log(`🔤 [X] OCR result: "${xBannerName}"`);
 
