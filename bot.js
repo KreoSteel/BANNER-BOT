@@ -56,6 +56,7 @@ class ASTDXBannerBot {
 
     // OCR helper to detect banner name from screenshot
     async ocrBannerName(imageBuffer) {
+        fs.writeFileSync(`./ocr_input_${Date.now()}.png`, imageBuffer); // Save every OCR input
         try {
             const { data: { text } } = await Tesseract.recognize(imageBuffer, 'eng', {
                 tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',
@@ -76,41 +77,78 @@ class ASTDXBannerBot {
 
         // Try to find and send X banner
         let xBannerFound = false;
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 10; i++) {
+            console.log(`🔎 [X] Attempt ${i + 1}/10: Capturing screenshot...`);
             const xScreenshot = await this.captureBannerScreenshot(this.config.xBannerArea);
+            if (!xScreenshot) {
+                console.log('❌ [X] Screenshot is null or failed.');
+                continue;
+            }
+            console.log(`🖼️ [X] Screenshot size: ${xScreenshot.length} bytes`);
+            // After capturing screenshot in captureAndSendBanners
+            fs.writeFileSync(`./debug_xbanner_${Date.now()}.png`, xScreenshot);
+
             const xBannerName = await this.ocrBannerName(xScreenshot);
+            console.log(`🔤 [X] OCR result: "${xBannerName}"`);
+
+
             if (xBannerName === 'X BANNER') {
+                console.log('[X] Banner detected as X BANNER.');
                 if (this.lastSentBannerNames.X !== xBannerName) {
-                    await this.sendToDiscord(xScreenshot, 'X Banner', '🎯 X Banner captured!');
-                    this.lastSentBannerNames.X = xBannerName;
+                    if (this.isDuplicateImage(xScreenshot)) {
+                        console.log('🚫 [X] Duplicate image detected, not sending.');
+                    } else {
+                        await this.sendToDiscord(xScreenshot, 'X Banner', '🎯 X Banner captured!');
+                        this.lastSentBannerNames.X = xBannerName;
+                        console.log('✅ [X] Banner sent to Discord.');
+                    }
                 } else {
-                    console.log('🚫 Duplicate X Banner, not sending.');
+                    console.log('🚫 [X] Duplicate X Banner name, not sending.');
                 }
                 xBannerFound = true;
                 break;
+            } else {
+                console.log(`[X] OCR did not detect X BANNER, got: "${xBannerName}"`);
             }
-            await new Promise(resolve => setTimeout(resolve, 8000));
+            await new Promise(resolve => setTimeout(resolve, 5000));
         }
-        if (!xBannerFound) console.log('❌ X Banner not found after 5 tries.');
+        if (!xBannerFound) console.log('❌ X Banner not found after 10 tries.');
 
         // Try to find and send Y banner
         let yBannerFound = false;
-        for (let i = 0; i < 5; i++) {
+        for (let i = 0; i < 10; i++) {
+            console.log(`🔎 [Y] Attempt ${i + 1}/10: Capturing screenshot...`);
             const yScreenshot = await this.captureBannerScreenshot(this.config.yBannerArea);
+            if (!yScreenshot) {
+                console.log('❌ [Y] Screenshot is null or failed.');
+                continue;
+            }
+            console.log(`🖼️ [Y] Screenshot size: ${yScreenshot.length} bytes`);
+
             const yBannerName = await this.ocrBannerName(yScreenshot);
+            console.log(`🔤 [Y] OCR result: "${yBannerName}"`);
+
             if (yBannerName === 'Y BANNER') {
+                console.log('[Y] Banner detected as Y BANNER.');
                 if (this.lastSentBannerNames.Y !== yBannerName) {
-                    await this.sendToDiscord(yScreenshot, 'Y Banner', '🎯 Y Banner captured!');
-                    this.lastSentBannerNames.Y = yBannerName;
+                    if (this.isDuplicateImage(yScreenshot)) {
+                        console.log('🚫 [Y] Duplicate image detected, not sending.');
+                    } else {
+                        await this.sendToDiscord(yScreenshot, 'Y Banner', '🎯 Y Banner captured!');
+                        this.lastSentBannerNames.Y = yBannerName;
+                        console.log('✅ [Y] Banner sent to Discord.');
+                    }
                 } else {
-                    console.log('🚫 Duplicate Y Banner, not sending.');
+                    console.log('🚫 [Y] Duplicate Y Banner name, not sending.');
                 }
                 yBannerFound = true;
                 break;
+            } else {
+                console.log(`[Y] OCR did not detect Y BANNER, got: "${yBannerName}"`);
             }
-            await new Promise(resolve => setTimeout(resolve, 8000));
+            await new Promise(resolve => setTimeout(resolve, 5000));
         }
-        if (!yBannerFound) console.log('❌ Y Banner not found after 5 tries.');
+        if (!yBannerFound) console.log('❌ Y Banner not found after 10 tries.');
 
     }
 
