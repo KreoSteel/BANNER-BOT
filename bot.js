@@ -14,13 +14,13 @@ const config = {
         x: 50,     // X coordinate of X banner
         y: 50,     // Y coordinate of X banner
         width: 1200, // Width of X banner area
-        height: 900 // Height of X banner area
+        height: 800 // Height of X banner area
     },
     yBannerArea: {
         x: 50,     // X coordinate of Y banner (same as X banner)
         y: 50,     // Y coordinate of Y banner (same as X banner)
         width: 1200, // Width of Y banner area (same as X banner)
-        height: 900 // Height of Y banner area (same as X banner)
+        height: 800 // Height of Y banner area (same as X banner)
     }
 };
 
@@ -90,7 +90,6 @@ class ASTDXBannerBot {
             const userDataDir = './browser-data';
             
             this.browser = await puppeteer.launch({
-                executablePath: '/usr/bin/chromium-browser',
                 headless: 'new', // Back to headless for server compatibility
                 userDataDir: userDataDir,
                 args: [
