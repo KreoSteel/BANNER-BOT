@@ -107,6 +107,9 @@ class ASTDXBannerBot {
             await new Promise(resolve => setTimeout(resolve, 8000));
         }
         if (!yBannerFound) console.log('❌ Y Banner not found after 5 tries.');
+
+        // Reset duplicate hash cache after sending banners
+        this.recentHashes = [];
     }
 
     async setupDiscordClient() {
