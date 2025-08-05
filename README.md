@@ -1,73 +1,60 @@
-# Banner Bot
+# ASTDX Banner Bot - Alternating Capture Strategy
 
-A Discord bot that monitors ASTDX livestream banners using Puppeteer and Discord.js.
+## Problem Solved
+The bot was capturing duplicate banners because the livestream rapidly switches between X and Y banners in the same screen area every 15-19 seconds. The previous intelligent capture system was still causing duplicates.
 
-## Prerequisites
+## New Approach: Alternating Capture Strategy
+Instead of trying to capture both banners simultaneously, the bot now uses a **time-based alternating strategy**:
 
-- **Node.js** (version 18 or higher)
-- **npm** (comes with Node.js)
-- **Discord Bot Token** (create a bot at https://discord.com/developers/applications)
-- **Channel ID** (the Discord channel where the bot will operate)
-- **Livestream URL** (the YouTube livestream to monitor)
+### How It Works
+1. **X Banner**: Captured at minute 31 of every hour
+2. **Y Banner**: Captured at minute 1 of every hour
+3. **Simple Deduplication**: Uses MD5 hashing to avoid sending identical images
+4. **Time Protection**: Minimum 30 seconds between any captures
 
-## Setup Instructions
+### Key Features
+- **One Banner at a Time**: Only captures one banner per scheduled time
+- **Hash-Based Deduplication**: Keeps track of recent image hashes to avoid duplicates
+- **Page Refresh**: Always refreshes the page before capture to ensure latest content
+- **Time-Based Scheduling**: Predictable capture times that work with the livestream's switching pattern
 
-1. **Clone or Download the Repository**
+### Configuration
+```javascript
+captureStrategy: {
+    xBannerMinute: 31, // Capture X banner at minute 31
+    yBannerMinute: 1,  // Capture Y banner at minute 1
+    minTimeBetweenCaptures: 30000, // Minimum 30 seconds between captures
+    hashCacheSize: 5 // Keep last 5 hashes to avoid duplicates
+}
+```
 
-   ```sh
-   git clone <repository-url>
-   cd BANNER BOT
-   ```
+### Discord Commands
+- `!test-alternating-capture` - Test both X and Y banner capture
+- `!test-single-capture` - Test single banner capture
+- `!banner-status` - Show current banner capture status
+- `!test-x` - Manual X banner capture
+- `!test-y` - Manual Y banner capture
 
-2. **Install Dependencies**
+### Why This Approach Works
+1. **Predictable Timing**: The livestream switches every 15-19 seconds, so capturing at specific minutes (31 and 1) ensures we get different banners
+2. **No Complex Detection**: Removes the unreliable change detection system
+3. **Simple Deduplication**: Basic hash checking prevents sending identical images
+4. **Time Protection**: Prevents rapid successive captures
 
-   ```sh
-   npm install
-   ```
+### Monitoring Schedule
+- **Every hour at minute 31**: Capture X Banner
+- **Every hour at minute 1**: Capture Y Banner
+- **Continuous monitoring**: Bot checks every minute for capture times
 
-3. **Configure Environment Variables**
+### Installation & Usage
+1. Set up environment variables in `.env`
+2. Run `npm install`
+3. Start with `node bot.js`
+4. Bot will automatically capture banners at scheduled times
 
-   Create a `.env` file in the root directory with the following content:
+### Troubleshooting
+- If duplicates still occur, increase `minTimeBetweenCaptures`
+- If missing banners, check the livestream URL and browser status
+- Use `!banner-status` to check current bot status
 
-   ```env
-   DISCORD_TOKEN=your_discord_token_here
-   CHANNEL_ID=your_channel_id_here
-   LIVESTREAM_URL=https://www.youtube.com/watch?v=your_livestream_id
-   ```
-
-   Replace the values with your actual Discord bot token, channel ID, and livestream URL.
-
-4. **(Optional) Setup uBlock Origin Extension**
-
-   If you want to use the adblocker extension, run:
-
-   ```sh
-   npm run setup-adblocker
-   ```
-
-5. **Start the Bot**
-
-   ```sh
-   npm start
-   ```
-
-   Or, for development with auto-reload:
-
-   ```sh
-   npm run dev
-   ```
-
-## Notes
-
-- The bot uses Puppeteer, which will automatically download a compatible version of Chromium.
-- If you encounter issues with browser launching, ensure you have sufficient permissions and disk space.
-- For advanced configuration, edit the `config` object in `bot.js`.
-
-## Troubleshooting
-
-- **Browser not found error:** Make sure you are not setting a hardcoded `executablePath` for Puppeteer, or set it according to your OS if needed.
-- **Missing dependencies:** Run `npm install` to ensure all packages are installed.
-
-## License
-
-MIT
+This approach is much simpler and more reliable than the previous complex change detection system.

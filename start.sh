@@ -16,9 +16,9 @@ if [ ! -d "node_modules" ]; then
     npm install
 fi
 
-# Set up uBlock Origin if not exists
-if [ ! -d "extensions/ublock-origin" ]; then
-    echo "🛡️ Setting up uBlock Origin extension..."
+# Set up uBlock Origin Lite if not exists
+if [ ! -d "extensions/ublock-origin-lite" ]; then
+    echo "🛡️ Setting up uBlock Origin Lite extension..."
     node setup-adblocker.js
 fi
 
