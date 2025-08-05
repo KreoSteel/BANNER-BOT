@@ -70,6 +70,10 @@ class ASTDXBannerBot {
 
     // New capture strategy for X and Y banners using OCR
     async captureAndSendBanners() {
+        // Reset duplicate hash cache and last sent banner names before capturing banners
+        this.recentHashes = [];
+        this.lastSentBannerNames = { X: null, Y: null };
+
         // Try to find and send X banner
         let xBannerFound = false;
         for (let i = 0; i < 5; i++) {
@@ -108,8 +112,6 @@ class ASTDXBannerBot {
         }
         if (!yBannerFound) console.log('❌ Y Banner not found after 5 tries.');
 
-        // Reset duplicate hash cache after sending banners
-        this.recentHashes = [];
     }
 
     async setupDiscordClient() {
