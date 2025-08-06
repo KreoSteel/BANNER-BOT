@@ -24,6 +24,12 @@ const config = {
         width: 1200, // Width of Y banner area (same as X banner)
         height: 800 // Height of Y banner area (same as X banner)
     },
+    ocrArea: {
+        x: 50,     // X coordinate of OCR area (same as banner area)
+        y: 50,     // Y coordinate of OCR area (same as banner area)
+        width: 500, // Increase width to 300 pixels
+        height: 150 // Increase height to 200 pixels
+    },
     // Simplified configuration for alternating capture
     captureStrategy: {
         xBannerMinute: 1, // Capture X banner at minute 1
@@ -55,11 +61,14 @@ class ASTDXBannerBot {
     }
 
     // OCR helper to detect banner name from screenshot
-    async ocrBannerName(imageBuffer) {
+    async ocrBannerName() {
         try {
-            const { data: { text } } = await Tesseract.recognize(imageBuffer, 'eng', {
+            const ocrArea = this.config.ocrArea;
+            const screenshot = await this.page.screenshot({ clip: ocrArea });
+            const { data: { text } } = await Tesseract.recognize(screenshot, 'eng', {
                 tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',
             });
+            fs.writeFileSync(`./debug_xbanner_${Date.now()}.png`, screenshot);
             const match = text.match(/([XY])\s*BANNER/i);
             return match ? match[0].trim().toUpperCase() : null;
         } catch (error) {
@@ -84,8 +93,6 @@ class ASTDXBannerBot {
                 continue;
             }
 
-            // DEBUG: Save X banner screenshot to file
-            fs.writeFileSync(`./debug_xbanner_${Date.now()}.png`, xScreenshot);
 
             const xBannerName = await this.ocrBannerName(xScreenshot);
             console.log(`🔤 [X] OCR result: "${xBannerName}"`);
