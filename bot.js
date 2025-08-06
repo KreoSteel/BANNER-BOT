@@ -227,7 +227,7 @@ class ASTDXBannerBot {
             const userDataDir = './browser-data';
 
             this.browser = await puppeteer.launch({
-                headless: 'new', // Back to headless for server compatibility
+                headless: false, // Back to headless for server compatibility
                 userDataDir: userDataDir,
                 args: [
                     '--no-sandbox',
