@@ -6,7 +6,7 @@ import Tesseract from 'tesseract.js'; // Add this import at the top
 
 // Load environment variables
 import dotenv from 'dotenv';
-dotenv.config();
+dotenv.config()
 
 const config = {
     discordToken: process.env.DISCORD_TOKEN || 'your_discord_token_here',
