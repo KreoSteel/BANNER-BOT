@@ -11,6 +11,7 @@ dotenv.config()
 const config = {
     discordToken: process.env.DISCORD_TOKEN || 'your_discord_token_here',
     channelId: process.env.CHANNEL_ID || 'your_channel_id_here',
+    roleId: process.env.ROLE_ID || 'your_role_id_here', // Role to ping when banners are sent
     livestreamUrl: process.env.LIVESTREAM_URL || 'https://www.youtube.com/watch?v=your_livestream_id',
     xBannerArea: {
         x: 50,     // X coordinate of X banner
@@ -103,7 +104,7 @@ class ASTDXBannerBot {
                     if (this.isDuplicateImage(xScreenshot)) {
                         console.log('🚫 [X] Duplicate image detected, not sending.');
                     } else {
-                        await this.sendToDiscord(xScreenshot, 'X Banner', '🎯 X Banner captured!');
+                        await this.sendToDiscord(xScreenshot, 'X Banner', '');
                         this.lastSentBannerNames.X = xBannerName;
                         console.log('✅ [X] Banner sent to Discord.');
                     }
@@ -139,9 +140,9 @@ class ASTDXBannerBot {
                     if (this.isDuplicateImage(yScreenshot)) {
                         console.log('🚫 [Y] Duplicate image detected, not sending.');
                     } else {
-                        await this.sendToDiscord(yScreenshot, 'Y Banner', '🎯 Y Banner captured!');
+                        await this.sendToDiscord(yScreenshot, 'Y Banner', '', false);
                         this.lastSentBannerNames.Y = yBannerName;
-                        console.log('✅ [Y] Banner sent to Discord.');
+                        console.log('✅ [Y] Banner screenshot sent to Discord (no message).');
                     }
                 } else {
                     console.log('🚫 [Y] Duplicate Y Banner name, not sending.');
@@ -223,6 +224,8 @@ class ASTDXBannerBot {
                 await message.reply(status);
             } else if (message.content === '!extension-status') {
                 await this.checkExtensionStatus(message);
+            } else if (message.content === '!banner-config') {
+                await this.checkBannerConfig(message);
             }
         });
     }
@@ -1358,7 +1361,13 @@ class ASTDXBannerBot {
 
             // Send the banner
             console.log(`✅ Captured and sending ${bannerType} banner`);
-            await this.sendToDiscord(screenshot, `${bannerType} Banner Update`, `🎯 ${bannerType} Banner captured!`);
+            if (bannerType === 'Y') {
+                // Y banner: send screenshot only, no message
+                await this.sendToDiscord(screenshot, `${bannerType} Banner Update`, '', false);
+            } else {
+                // X banner: send with custom message only
+                await this.sendToDiscord(screenshot, `${bannerType} Banner Update`, '');
+            }
 
             // Update timestamps
             this.lastCaptureTime = Date.now();
@@ -1729,7 +1738,7 @@ class ASTDXBannerBot {
                 }
             });
 
-            await this.sendToDiscord(screenshot, 'X Banner Update', '🎯 X Banner captured!');
+            await this.sendToDiscord(screenshot, 'X Banner Update', '');
 
         } catch (error) {
             console.error('❌ Failed to capture X banner:', error);
@@ -1768,7 +1777,7 @@ class ASTDXBannerBot {
                 }
             });
 
-            await this.sendToDiscord(screenshot, 'Y Banner Update', '🎯 Y Banner captured!');
+            await this.sendToDiscord(screenshot, 'Y Banner Update', '', false);
 
         } catch (error) {
             console.error('❌ Failed to capture Y banner:', error);
@@ -1776,7 +1785,22 @@ class ASTDXBannerBot {
         }
     }
 
-    async sendToDiscord(screenshotBuffer, filename, message) {
+    // Read banner message from text file
+    readBannerMessage() {
+        try {
+            const messagePath = './banner-message.txt';
+            if (fs.existsSync(messagePath)) {
+                const message = fs.readFileSync(messagePath, 'utf8').trim();
+                return message || '🎯 New banner detected!';
+            }
+            return '🎯 New banner detected!';
+        } catch (error) {
+            console.error('❌ Error reading banner message file:', error);
+            return '🎯 New banner detected!';
+        }
+    }
+
+    async sendToDiscord(screenshotBuffer, filename, message, includeCustomMessage = true) {
         try {
             const channel = await this.client.channels.fetch(this.config.channelId);
             if (!channel) {
@@ -1787,12 +1811,29 @@ class ASTDXBannerBot {
                 name: `${filename}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`
             });
 
+            let fullMessage = '';
+            
+            if (includeCustomMessage) {
+                // Read custom message from text file
+                const customMessage = this.readBannerMessage();
+                
+                // Create role ping if role ID is configured
+                const rolePing = this.config.roleId && this.config.roleId !== 'your_role_id_here' 
+                    ? `<@&${this.config.roleId}>` 
+                    : '';
+
+                fullMessage = `${rolePing} ${customMessage}\n${message}\n`.trim();
+            } else {
+                // Only send the screenshot without any text message
+                fullMessage = '';
+            }
+
             await channel.send({
-                content: `${message}\n⏰ ${new Date().toLocaleString()}`,
+                content: fullMessage,
                 files: [attachment]
             });
 
-            console.log(`✅ Sent ${filename} to Discord`);
+            console.log(`✅ Sent ${filename} to Discord${includeCustomMessage ? ' with message' : ' (screenshot only)'}`);
         } catch (error) {
             console.error('❌ Failed to send to Discord:', error);
         }
@@ -1806,7 +1847,7 @@ class ASTDXBannerBot {
                 return;
             }
 
-            await channel.send(`❌ **Error:** ${errorMessage}\n⏰ ${new Date().toLocaleString()}`);
+            await channel.send(`❌ **Error:** ${errorMessage}\n`);
         } catch (error) {
             console.error('Failed to send error to Discord:', error);
         }
@@ -1874,8 +1915,8 @@ class ASTDXBannerBot {
                 path: './y-banner-area.png'
             });
 
-            // Send Y Banner screenshot to Discord
-            await this.sendToDiscord(yBannerScreenshot, 'Test Y Banner', `🧪 Test capture - Y Banner area (${yBannerVisible ? 'Visible' : 'Not visible'})`);
+            // Send Y Banner screenshot to Discord (screenshot only, no message)
+            await this.sendToDiscord(yBannerScreenshot, 'Test Y Banner', '', false);
 
             console.log('✅ Both banner test screenshots captured and sent to Discord!');
 
@@ -2000,6 +2041,48 @@ class ASTDXBannerBot {
         } catch (error) {
             console.error('❌ Error checking extension status:', error);
             await message.reply('❌ Error checking extension status: ' + error.message);
+        }
+    }
+
+    async checkBannerConfig(message) {
+        try {
+            console.log('🔍 Checking banner configuration...');
+            
+            let status = '📋 **Banner Configuration Status**\n\n';
+            
+            // Check role configuration
+            if (this.config.roleId && this.config.roleId !== 'your_role_id_here') {
+                status += `✅ **Role ID Configured:** ${this.config.roleId}\n`;
+                status += `📢 Role will be pinged when banners are sent\n\n`;
+            } else {
+                status += `❌ **Role ID Not Configured**\n`;
+                status += `📝 Set ROLE_ID in your .env file or config\n\n`;
+            }
+            
+            // Check text file
+            const messagePath = './banner-message.txt';
+            if (fs.existsSync(messagePath)) {
+                const fileContent = fs.readFileSync(messagePath, 'utf8').trim();
+                status += `✅ **Text File Found:** banner-message.txt\n`;
+                status += `📄 **Current Message:** "${fileContent}"\n\n`;
+            } else {
+                status += `❌ **Text File Missing:** banner-message.txt\n`;
+                status += `📝 Create this file to customize banner messages\n\n`;
+            }
+            
+            // Show example of what the message will look like
+            const customMessage = this.readBannerMessage();
+            const rolePing = this.config.roleId && this.config.roleId !== 'your_role_id_here' 
+                ? `<@&${this.config.roleId}>` 
+                : '';
+            
+            status += `📤 **Example Message Format:**\n`;
+            status += `\`\`\`\n${rolePing} ${customMessage}\n🎯 X Banner captured!\n}\n\`\`\``;
+            
+            await message.reply(status);
+        } catch (error) {
+            console.error('Error checking banner config:', error);
+            await message.reply('❌ Error checking banner configuration: ' + error.message);
         }
     }
 

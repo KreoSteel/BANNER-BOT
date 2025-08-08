@@ -35,6 +35,7 @@ captureStrategy: {
 - `!test-x` - Manual X banner capture
 - `!test-y` - Manual Y banner capture
 - `!extension-status` - Check uBlock Origin extension status
+- `!banner-config` - Check role pinging and text file configuration
 
 ### Why This Approach Works
 1. **Predictable Timing**: The livestream switches every 15-19 seconds, so capturing at specific minutes (31 and 1) ensures we get different banners
@@ -52,6 +53,26 @@ captureStrategy: {
 2. Run `npm install`
 3. Start with `node bot.js`
 4. Bot will automatically capture banners at scheduled times
+
+### Role Pinging & Custom Messages
+The bot can ping a specific Discord role and include custom text when banners are sent:
+
+#### Role Pinging Setup
+1. **Get your role ID**: Right-click the role in Discord and copy the ID
+2. **Add to environment**: Add `ROLE_ID=your_role_id_here` to your `.env` file
+3. **Verify**: Use `!banner-config` command to check role configuration
+
+#### Custom Message Setup
+1. **Edit text file**: Modify `banner-message.txt` to customize the message
+2. **Format**: The text will be included with every banner post
+3. **Check status**: Use `!banner-config` to see current message and example format
+
+#### Example Message Format
+```
+@RoleName 🎯 New banner detected! Check it out!
+🎯 X Banner captured!
+⏰ 12/25/2023, 2:31:45 PM
+```
 
 ### Ad Blocker Extension Setup
 The bot uses uBlock Origin Lite to block ads. If you see "Failed to load extension" errors:
