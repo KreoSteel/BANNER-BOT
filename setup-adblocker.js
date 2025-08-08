@@ -1,133 +1,55 @@
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
-import os from 'os';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
-console.log('🛡️ Setting up uBlock Origin Lite for Puppeteer...');
+const execAsync = promisify(exec);
 
-// Create extensions directory
-const extensionsDir = './extensions';
-const ublockDir = path.join(extensionsDir, 'ublock-origin-lite');
-
-if (!fs.existsSync(extensionsDir)) {
-    fs.mkdirSync(extensionsDir, { recursive: true });
-}
-
-if (!fs.existsSync(ublockDir)) {
-    fs.mkdirSync(ublockDir, { recursive: true });
-}
-
-// Download uBlock Origin Lite
-console.log('📥 Downloading uBlock Origin Lite...');
-
-try {
-    // Get the latest release info from GitHub API
-    console.log('🔍 Finding latest uBlock Origin Lite release...');
-    const apiUrl = 'https://api.github.com/repos/gorhill/ublock/releases/latest';
-    const releaseInfo = execSync(`curl -s "${apiUrl}"`, { encoding: 'utf8' });
-    const release = JSON.parse(releaseInfo);
+async function setupAdBlocker() {
+    console.log('🛡️ Setting up uBlock Origin Lite extension...');
     
-    // Find the Chromium zip asset for uBlock Origin Lite
-    let chromiumAsset = release.assets.find(asset => 
-        asset.name.includes('chromium') && asset.name.includes('lite') && asset.name.endsWith('.zip')
-    );
+    const extensionDir = './extensions/ublock-origin-lite';
+    const manifestPath = path.join(extensionDir, 'manifest.json');
     
-    if (!chromiumAsset) {
-        // Fallback: try to find any chromium asset if lite version not found
-        const fallbackAsset = release.assets.find(asset => 
-            asset.name.includes('chromium') && asset.name.endsWith('.zip')
-        );
+    // Check if extension already exists
+    if (fs.existsSync(manifestPath)) {
+        console.log('✅ uBlock Origin Lite extension already exists');
         
-        if (!fallbackAsset) {
-            throw new Error('Could not find Chromium version in latest release');
-        }
-        
-        console.log(`⚠️ Lite version not found, using: ${fallbackAsset.name}`);
-        chromiumAsset = fallbackAsset;
-    } else {
-        console.log(`📦 Found Lite version: ${chromiumAsset.name}`);
-    }
-    
-    const zipPath = path.join(extensionsDir, 'ublock-lite.zip');
-    
-    // Download with proper headers and follow redirects
-    console.log('⬇️ Downloading...');
-    execSync(`curl -L -H "Accept: application/octet-stream" -o "${zipPath}" "${chromiumAsset.browser_download_url}"`);
-    
-    // Check if file was downloaded properly
-    const stats = fs.statSync(zipPath);
-    console.log(`📊 Downloaded ${Math.round(stats.size / 1024)}KB`);
-    
-    if (stats.size < 1000) {
-        throw new Error('Download appears incomplete (file too small)');
-    }
-    
-    // Extract the zip file using appropriate method for the OS
-    console.log('📦 Extracting uBlock Origin Lite...');
-    
-    if (os.platform() === 'win32') {
-        // Windows: Use PowerShell's Expand-Archive
-        const powershellCmd = `powershell -command "Expand-Archive -Path '${zipPath}' -DestinationPath '${ublockDir}' -Force"`;
-        execSync(powershellCmd);
-    } else {
-        // Unix-like systems: Use unzip
-        execSync(`unzip -o "${zipPath}" -d "${ublockDir}"`);
-    }
-    
-    // Clean up zip file
-    fs.unlinkSync(zipPath);
-    
-    console.log('✅ uBlock Origin Lite setup complete!');
-    console.log('📁 Extension location:', ublockDir);
-    
-    // Check extraction structure and find manifest.json
-    function findManifest(dir) {
-        const items = fs.readdirSync(dir);
-        
-        // Check current directory
-        if (items.includes('manifest.json')) {
-            return dir;
-        }
-        
-        // Check subdirectories (one level deep)
-        for (const item of items) {
-            const itemPath = path.join(dir, item);
-            if (fs.statSync(itemPath).isDirectory()) {
-                const subItems = fs.readdirSync(itemPath);
-                if (subItems.includes('manifest.json')) {
-                    return itemPath;
-                }
-            }
-        }
-        return null;
-    }
-    
-    const manifestDir = findManifest(ublockDir);
-    if (manifestDir) {
-        console.log('✅ Manifest file found - extension ready to use!');
-        if (manifestDir !== ublockDir) {
-            console.log(`📂 Extension files located in: ${manifestDir}`);
-            console.log('💡 You may need to use this subdirectory path in your Puppeteer config');
-        }
-    } else {
-        console.log('⚠️ Manifest file not found. Contents of extraction:');
+        // Read and display manifest info
         try {
-            const contents = fs.readdirSync(ublockDir);
-            contents.forEach(item => {
-                const itemPath = path.join(ublockDir, item);
-                const isDir = fs.statSync(itemPath).isDirectory();
-                console.log(`  ${isDir ? '📁' : '📄'} ${item}`);
-            });
-        } catch (e) {
-            console.log('  Error reading directory contents');
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            console.log(`📦 Extension version: ${manifest.version}`);
+            console.log(`📦 Extension name: ${manifest.name}`);
+            console.log(`📦 Minimum Chrome version: ${manifest.minimum_chrome_version || 'Not specified'}`);
+        } catch (error) {
+            console.log('⚠️ Could not read manifest.json:', error.message);
         }
+        
+        return;
     }
     
-} catch (error) {
-    console.error('❌ Failed to download uBlock Origin Lite:', error.message);
-    console.log('💡 Manual setup required:');
-    console.log('1. Download uBlock Origin Lite from: https://github.com/gorhill/ublock/releases');
-    console.log('2. Extract to: ./extensions/ublock-origin-lite/');
-    console.log('3. Make sure the manifest.json file is in the ublock-origin-lite folder');
-    console.log('💡 Or install 7-Zip and add it to PATH for automatic extraction');
+    console.log('📥 Extension not found. You need to manually download uBlock Origin Lite.');
+    console.log('');
+    console.log('📋 Instructions:');
+    console.log('1. Go to: https://github.com/uBlockOrigin/uBlock-Origin/releases');
+    console.log('2. Download the latest "uBlock0.chromium.zip" file');
+    console.log('3. Extract the contents to: ./extensions/ublock-origin-lite/');
+    console.log('4. Make sure the manifest.json file is in the root of the extension directory');
+    console.log('');
+    console.log('🔧 Alternative: Use a different ad blocker or run without one');
+    console.log('The bot will work without an ad blocker, but you may see ads.');
+    
+    // Create extensions directory if it doesn't exist
+    if (!fs.existsSync('./extensions')) {
+        fs.mkdirSync('./extensions', { recursive: true });
+        console.log('✅ Created extensions directory');
+    }
+    
+    if (!fs.existsSync(extensionDir)) {
+        fs.mkdirSync(extensionDir, { recursive: true });
+        console.log('✅ Created ublock-origin-lite directory');
+    }
 }
+
+// Run the setup
+setupAdBlocker().catch(console.error);

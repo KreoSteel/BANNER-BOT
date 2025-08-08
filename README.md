@@ -34,6 +34,7 @@ captureStrategy: {
 - `!banner-status` - Show current banner capture status
 - `!test-x` - Manual X banner capture
 - `!test-y` - Manual Y banner capture
+- `!extension-status` - Check uBlock Origin extension status
 
 ### Why This Approach Works
 1. **Predictable Timing**: The livestream switches every 15-19 seconds, so capturing at specific minutes (31 and 1) ensures we get different banners
@@ -52,9 +53,21 @@ captureStrategy: {
 3. Start with `node bot.js`
 4. Bot will automatically capture banners at scheduled times
 
+### Ad Blocker Extension Setup
+The bot uses uBlock Origin Lite to block ads. If you see "Failed to load extension" errors:
+
+1. **Check extension status**: Use `!extension-status` command
+2. **Manual setup**: Run `npm run setup-adblocker` for instructions
+3. **Download extension**: Get uBlock Origin Lite from https://github.com/uBlockOrigin/uBlock-Origin/releases
+4. **Extract to**: `./extensions/ublock-origin-lite/`
+5. **Verify**: Make sure `manifest.json` is in the extension root directory
+
+**Note**: The bot will work without the ad blocker, but you may see ads during banner captures.
+
 ### Troubleshooting
 - If duplicates still occur, increase `minTimeBetweenCaptures`
 - If missing banners, check the livestream URL and browser status
 - Use `!banner-status` to check current bot status
+- Use `!extension-status` to check ad blocker extension status
 
 This approach is much simpler and more reliable than the previous complex change detection system.

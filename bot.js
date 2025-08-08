@@ -68,7 +68,6 @@ class ASTDXBannerBot {
             const { data: { text } } = await Tesseract.recognize(screenshot, 'eng', {
                 tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',
             });
-            fs.writeFileSync(`./debug_xbanner_${Date.now()}.png`, screenshot);
             const match = text.match(/([XY])\s*BANNER/i);
             return match ? match[0].trim().toUpperCase() : null;
         } catch (error) {
@@ -222,6 +221,8 @@ class ASTDXBannerBot {
                     `Y Banner Last: ${this.lastYBannerTime ? new Date(this.lastYBannerTime).toLocaleTimeString() : 'Never'}\n` +
                     `Bot Running: ${this.isRunning ? 'Yes' : 'No'}`;
                 await message.reply(status);
+            } else if (message.content === '!extension-status') {
+                await this.checkExtensionStatus(message);
             }
         });
     }
@@ -233,10 +234,35 @@ class ASTDXBannerBot {
             // Set up browser with extensions
             const userDataDir = './browser-data';
 
+            // Get absolute path for extension
+            const path = await import('path');
+            const fs = await import('fs');
+            const extensionPath = path.resolve('./extensions/ublock-origin-lite');
+            
+            // Check if extension directory exists and has manifest
+            let extensionArgs = [];
+            try {
+                if (fs.existsSync(extensionPath) && fs.existsSync(path.join(extensionPath, 'manifest.json'))) {
+                    console.log('✅ Extension directory found, attempting to load uBlock Origin Lite');
+                    extensionArgs = [`--load-extension=${extensionPath}`];
+                } else {
+                    console.log('⚠️ Extension directory not found, running without ad blocker');
+                }
+            } catch (error) {
+                console.log('⚠️ Error checking extension directory, running without ad blocker:', error.message);
+            }
+            
             this.browser = await puppeteer.launch({
                 headless: false, // Back to headless for server compatibility
                 userDataDir: userDataDir,
                 args: [
+                    // Enhanced stealth arguments
+                    '--disable-blink-features=AutomationControlled', // Critical for YouTube
+                    '--autoplay-policy=no-user-gesture-required',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    
+                    // Performance optimizations
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
                     '--disable-dev-shm-usage',
@@ -244,20 +270,15 @@ class ASTDXBannerBot {
                     '--no-first-run',
                     '--no-zygote',
                     '--disable-gpu',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    // FIXED: Use the correct uBlock Origin Lite path
-                    '--disable-extensions-except=./extensions/ublock-origin-lite',
-                    '--load-extension=./extensions/ublock-origin-lite',
                     '--disable-background-timer-throttling',
                     '--disable-backgrounding-occluded-windows',
                     '--disable-renderer-backgrounding',
                     '--memory-pressure-off',
                     '--max_old_space_size=512',
-                    // Additional EC2 optimizations
+                    
+                    // Additional stealth and performance
                     '--disable-background-networking',
                     '--disable-default-apps',
-                    // REMOVED: '--disable-extensions', (conflicts with loading uBlock)
                     '--disable-sync',
                     '--disable-translate',
                     '--hide-scrollbars',
@@ -268,11 +289,17 @@ class ASTDXBannerBot {
                     '--disable-background-media-suspend',
                     '--disable-component-extensions-with-background-pages',
                     '--disable-features=TranslateUI',
-                    '--disable-ipc-flooding-protection'
+                    '--disable-ipc-flooding-protection',
+                    
+                    // Extension args (may be empty if extension not found)
+                    ...extensionArgs
                 ]
             });
 
             this.page = await this.browser.newPage();
+
+            // Apply enhanced stealth measures
+            await this.applyStealthMeasures();
 
             // Set a realistic user agent to avoid bot detection
             await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -282,9 +309,6 @@ class ASTDXBannerBot {
 
             // Enable uBlock Origin
             await this.enableAdBlocker();
-
-            // Initialize Tesseract OCR
-            // await this.initializeTesseract(); // Removed as per edit hint
 
             console.log('📺 Loading livestream...');
 
@@ -325,6 +349,7 @@ class ASTDXBannerBot {
                                 await this.page.close();
                             }
                             this.page = await this.browser.newPage();
+                            await this.applyStealthMeasures();
                             await this.page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
                             await this.page.setViewport({ width: 1920, height: 1080 });
                         } catch (pageError) {
@@ -361,11 +386,11 @@ class ASTDXBannerBot {
                 console.log('Current URL:', currentUrl);
             }
 
-            // Handle YouTube consent popup and other overlays
-            await this.handleYouTubeOverlays();
+            // Handle YouTube consent popup and other overlays with enhanced method
+            await this.handleYouTubeOverlaysEnhanced();
 
-            // Start the video
-            await this.startVideo();
+            // Start the video with enhanced method
+            await this.startVideoEnhanced();
 
             // Wait for video to load
             await new Promise(resolve => setTimeout(resolve, 5000));
@@ -406,6 +431,283 @@ class ASTDXBannerBot {
         }
     }
 
+    // Enhanced stealth measures
+    async applyStealthMeasures() {
+        try {
+            // Remove webdriver property
+            await this.page.evaluateOnNewDocument(() => {
+                delete navigator.__proto__.webdriver;
+                
+                // Override the plugins property
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5],
+                });
+                
+                // Override the languages property
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en'],
+                });
+                
+                // Override the permissions property
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+                
+                // Override the chrome property
+                Object.defineProperty(window, 'chrome', {
+                    writable: true,
+                    enumerable: true,
+                    configurable: true,
+                    value: {
+                        runtime: {},
+                    },
+                });
+                
+                // Override the permissions property
+                Object.defineProperty(navigator, 'permissions', {
+                    get: () => ({
+                        query: async () => ({ state: 'granted' }),
+                    }),
+                });
+            });
+
+            // Set additional headers
+            await this.page.setExtraHTTPHeaders({
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1'
+            });
+
+            console.log('✅ Stealth measures applied successfully');
+        } catch (error) {
+            console.error('❌ Error applying stealth measures:', error);
+        }
+    }
+
+    // Enhanced YouTube overlay handling
+    async handleYouTubeOverlaysEnhanced() {
+        try {
+            console.log('🔧 Handling YouTube overlays with enhanced method...');
+
+            // Check if page and browser are still valid
+            if (!this.page || !this.browser || this.page.isClosed()) {
+                console.log('⚠️ Page not available, skipping overlay handling');
+                return;
+            }
+
+            // Wait for overlays to load
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            try {
+                // More sophisticated overlay handling
+                await this.page.evaluate(() => {
+                    // Remove specific overlay types more carefully
+                    const overlaySelectors = [
+                        '[role="dialog"]:not([data-video-id])',
+                        '.modal:not(.html5-video-player)',
+                        '.popup:not(.ytp-player)',
+                        '.overlay:not(.ytp-video-container)',
+                        '.ytp-popup',
+                        '.ytp-pause-overlay',
+                        '.ytp-gradient-top',
+                        '.ytp-gradient-bottom',
+                        // Additional stealth overlays
+                        '[class*="consent"]',
+                        '[class*="Consent"]',
+                        '[class*="cookie"]',
+                        '[class*="Cookie"]',
+                        '[class*="privacy"]',
+                        '[class*="Privacy"]',
+                        '[class*="gdpr"]',
+                        '[class*="GDPR"]'
+                    ];
+
+                    overlaySelectors.forEach(selector => {
+                        const overlays = document.querySelectorAll(selector);
+                        overlays.forEach(overlay => {
+                            // Check if this overlay is related to video player
+                            if (!overlay.closest('.html5-video-player') &&
+                                !overlay.closest('.ytp-player') &&
+                                !overlay.closest('video')) {
+                                overlay.style.display = 'none';
+                                overlay.style.visibility = 'hidden';
+                                overlay.style.opacity = '0';
+                                overlay.style.pointerEvents = 'none';
+                            }
+                        });
+                    });
+
+                    // Remove backdrop elements that are not video-related
+                    const backdrops = document.querySelectorAll('.backdrop, .modal-backdrop, .overlay-backdrop');
+                    backdrops.forEach(backdrop => {
+                        if (!backdrop.closest('.html5-video-player') &&
+                            !backdrop.closest('.ytp-player')) {
+                            backdrop.style.display = 'none';
+                        }
+                    });
+
+                    // Click consent buttons more intelligently
+                    const buttons = document.querySelectorAll('button');
+                    buttons.forEach(button => {
+                        const text = button.textContent.toLowerCase();
+                        const ariaLabel = button.getAttribute('aria-label')?.toLowerCase() || '';
+                        
+                        if ((text.includes('accept') || text.includes('agree') || text.includes('continue') || 
+                             text.includes('ok') || text.includes('yes') || text.includes('allow') ||
+                             ariaLabel.includes('accept') || ariaLabel.includes('agree') || ariaLabel.includes('continue')) &&
+                            !button.closest('.html5-video-player') &&
+                            !button.closest('.ytp-player')) {
+                            button.click();
+                        }
+                    });
+
+                    // Remove body scroll lock
+                    document.body.style.overflow = 'auto';
+                    document.documentElement.style.overflow = 'auto';
+                    
+                    // Remove any fixed positioned overlays
+                    const fixedElements = document.querySelectorAll('[style*="position: fixed"]');
+                    fixedElements.forEach(el => {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width > 200 && rect.height > 100 && 
+                            !el.closest('.html5-video-player') &&
+                            !el.closest('.ytp-player')) {
+                            el.style.display = 'none';
+                        }
+                    });
+                });
+
+                // Wait for changes to take effect
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                console.log('✅ YouTube overlays handled with enhanced method');
+
+            } catch (error) {
+                if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                    console.log('⚠️ Execution context was destroyed during overlay handling');
+                    return;
+                }
+                throw error;
+            }
+
+        } catch (error) {
+            console.error('❌ Error handling YouTube overlays:', error);
+        }
+    }
+
+    // Enhanced video start method
+    async startVideoEnhanced() {
+        try {
+            console.log('▶️ Attempting to start video with enhanced method...');
+
+            // Check if page and browser are still valid
+            if (!this.page || !this.browser || this.page.isClosed()) {
+                console.log('⚠️ Page not available, skipping video start');
+                return;
+            }
+
+            try {
+                // Wait for a video element to appear (timeout after 10 seconds)
+                await this.page.waitForSelector('video', { timeout: 10000 });
+                await new Promise(resolve => setTimeout(resolve, 500)); // Let the video load
+
+                // Try to play the video using the video element's play() method
+                const played = await this.page.evaluate(async () => {
+                    const video = document.querySelector('video');
+                    if (video) {
+                        try {
+                            await video.play();
+                            return !video.paused;
+                        } catch (e) {
+                            // If play() fails (e.g., due to overlay), return false
+                            return false;
+                        }
+                    }
+                    return false;
+                });
+
+                if (played) {
+                    console.log('✅ Video started via video.play()');
+                    return;
+                }
+
+                // If not playing, try clicking the overlay play button with enhanced selectors
+                console.log('🔍 Looking for play buttons with enhanced method...');
+                const playButtonSelectors = [
+                    '.ytp-large-play-button',
+                    '.ytp-play-button',
+                    'button[aria-label*="Play"]',
+                    'button[aria-label*="play"]',
+                    'button[title*="Play"]',
+                    'button[title*="play"]',
+                    // Additional stealth selectors
+                    '[class*="play-button"]',
+                    '[class*="PlayButton"]',
+                    '[class*="play"]:not([class*="player"])',
+                    '[class*="Play"]:not([class*="player"])'
+                ];
+
+                for (const selector of playButtonSelectors) {
+                    try {
+                        // Check if page is still valid before each operation
+                        if (this.page.isClosed()) {
+                            console.log('⚠️ Page was closed during video start attempt');
+                            return;
+                        }
+
+                        const button = await this.page.$(selector);
+                        if (button) {
+                            console.log(`🖱️ Clicking play button: ${selector}`);
+                            await button.click();
+                            console.log(`✅ Clicked play button: ${selector}`);
+                            await new Promise(resolve => setTimeout(resolve, 1500));
+                            break;
+                        }
+                    } catch (error) {
+                        if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                            console.log(`⚠️ Context destroyed while clicking ${selector}, skipping`);
+                            return;
+                        }
+                        console.log(`⚠️ Error with play button ${selector}:`, error.message);
+                    }
+                }
+
+                // Fallback: click the center of the video area
+                const videoBox = await this.page.$('video');
+                if (videoBox) {
+                    const box = await videoBox.boundingBox();
+                    if (box) {
+                        await this.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+                        console.log('🖱️ Clicked center of video area');
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
+
+                console.log('✅ Video start attempt completed with enhanced method');
+
+            } catch (error) {
+                if (error.message.includes('Protocol error') || error.message.includes('Execution context was destroyed')) {
+                    console.log('⚠️ Execution context was destroyed during video start');
+                    return;
+                }
+                throw error;
+            }
+
+        } catch (error) {
+            console.error('❌ Error starting video:', error);
+        }
+    }
+
     startScheduledMonitoring() {
         if (this._scheduledMonitorActive) return;
         this._scheduledMonitorActive = true;
@@ -429,10 +731,22 @@ class ASTDXBannerBot {
     async enableAdBlocker() {
         try {
             console.log('🛡️ Setting up ad blocker (uBlock Origin only)...');
-            // No manual request interception; rely on uBlock Origin extension
-            console.log('✅ Ad blocker (uBlock Origin) enabled');
+            
+            // Check if extension loaded successfully
+            const targets = await this.browser.targets();
+            const extensionTargets = targets.filter(target => target.type() === 'background_page' && target.url().includes('ublock'));
+            
+            if (extensionTargets.length > 0) {
+                console.log('✅ uBlock Origin extension loaded successfully');
+            } else {
+                console.log('⚠️ uBlock Origin extension not detected, continuing without ad blocker');
+                console.log('This is normal if the extension failed to load due to version compatibility');
+            }
+            
+            console.log('✅ Ad blocker setup completed');
         } catch (error) {
             console.error('❌ Failed to enable ad blocker:', error);
+            console.log('⚠️ Continuing without ad blocker - this is not critical for bot operation');
         }
     }
 
@@ -1065,9 +1379,41 @@ class ASTDXBannerBot {
     async monitorLoop() {
         if (this._monitorLoopRunning) return; // Prevent multiple loops
         this._monitorLoopRunning = true;
-        console.log('🔄 Starting monitoring loop...');
+        console.log('🔄 Starting monitoring loop with enhanced health checking...');
+        
+        let healthCheckCounter = 0;
+        const HEALTH_CHECK_INTERVAL = 6; // Check every 6 iterations (60 seconds)
+        
         while (this.isRunning) {
             try {
+                // Periodic health check
+                healthCheckCounter++;
+                if (healthCheckCounter >= HEALTH_CHECK_INTERVAL) {
+                    console.log('🏥 Performing periodic health check...');
+                    const healthStatus = await this.performHealthCheck();
+                    
+                    if (!healthStatus.isHealthy) {
+                        console.log('⚠️ Health check failed, attempting recovery...');
+                        await this.performRecovery(healthStatus.issues);
+                        healthCheckCounter = 0; // Reset counter after recovery
+                        continue; // Skip this iteration and try again
+                    }
+                    
+                    healthCheckCounter = 0; // Reset counter
+                    console.log('✅ Health check passed');
+                }
+                
+                // Check for YouTube errors before attempting to capture banners
+                const hasError = await this.checkForYouTubeError();
+                if (hasError) {
+                    console.log('⚠️ YouTube error detected, attempting to refresh page...');
+                    await this.sendErrorToDiscord('YouTube error detected: "Something went wrong". Attempting to refresh page...');
+                    await this.refreshPage();
+                    // Wait a bit longer after refresh to let the page stabilize
+                    await new Promise(resolve => setTimeout(resolve, 15000));
+                    continue; // Skip this iteration and try again
+                }
+
                 await this.captureAndSendBanners();
                 await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
             } catch (error) {
@@ -1079,6 +1425,117 @@ class ASTDXBannerBot {
                     await new Promise(resolve => setTimeout(resolve, 5000));
                 }
             }
+        }
+    }
+
+    // Enhanced health check method
+    async performHealthCheck() {
+        try {
+            const issues = [];
+            
+            // Check if browser and page are still valid
+            if (!this.browser || !this.page || this.page.isClosed()) {
+                issues.push('Browser or page not available');
+            }
+            
+            // Check if we're still on a YouTube page
+            try {
+                const currentUrl = this.page.url();
+                if (!currentUrl.includes('youtube.com') && !currentUrl.includes('youtu.be')) {
+                    issues.push('Not on YouTube page');
+                }
+            } catch (error) {
+                issues.push('Cannot access page URL');
+            }
+            
+            // Check if video element exists and is working
+            try {
+                const videoStatus = await this.page.evaluate(() => {
+                    const video = document.querySelector('video');
+                    if (!video) return { exists: false, working: false };
+                    
+                    return {
+                        exists: true,
+                        working: !video.paused || video.readyState >= 2,
+                        readyState: video.readyState,
+                        paused: video.paused
+                    };
+                });
+                
+                if (!videoStatus.exists) {
+                    issues.push('Video element not found');
+                } else if (!videoStatus.working) {
+                    issues.push('Video not working properly');
+                }
+            } catch (error) {
+                issues.push('Cannot check video status');
+            }
+            
+            // Check for common error pages
+            try {
+                const hasError = await this.checkForYouTubeError();
+                if (hasError) {
+                    issues.push('YouTube error page detected');
+                }
+            } catch (error) {
+                issues.push('Cannot check for errors');
+            }
+            
+            return {
+                isHealthy: issues.length === 0,
+                issues: issues
+            };
+            
+        } catch (error) {
+            console.error('❌ Error during health check:', error);
+            return {
+                isHealthy: false,
+                issues: ['Health check failed: ' + error.message]
+            };
+        }
+    }
+
+    // Enhanced recovery method
+    async performRecovery(issues) {
+        try {
+            console.log('🔄 Starting recovery process...');
+            console.log('📋 Issues detected:', issues.join(', '));
+            
+            // Try different recovery strategies based on issues
+            if (issues.some(issue => issue.includes('YouTube error page'))) {
+                console.log('🔄 Attempting page refresh...');
+                await this.refreshPage();
+            }
+            
+            if (issues.some(issue => issue.includes('Video element not found') || issue.includes('Video not working'))) {
+                console.log('🔄 Attempting to restart video...');
+                await this.startVideoEnhanced();
+            }
+            
+            if (issues.some(issue => issue.includes('Not on YouTube page'))) {
+                console.log('🔄 Attempting to navigate back to livestream...');
+                await this.page.goto(this.config.livestreamUrl, { 
+                    waitUntil: 'domcontentloaded', 
+                    timeout: 30000 
+                });
+                await this.handleYouTubeOverlaysEnhanced();
+                await this.startVideoEnhanced();
+            }
+            
+            // If browser/page issues, restart browser
+            if (issues.some(issue => issue.includes('Browser or page not available'))) {
+                console.log('🔄 Restarting browser...');
+                await this.restartBrowser();
+            }
+            
+            // Wait for recovery to take effect
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            
+            console.log('✅ Recovery process completed');
+            
+        } catch (error) {
+            console.error('❌ Error during recovery:', error);
+            await this.sendErrorToDiscord('Recovery failed: ' + error.message);
         }
     }
 
@@ -1476,6 +1933,73 @@ class ASTDXBannerBot {
         } catch (error) {
             console.error('❌ Failed to restart browser:', error);
             await this.sendErrorToDiscord('Failed to restart browser: ' + error.message);
+        }
+    }
+
+    async checkExtensionStatus(message) {
+        try {
+            const fs = await import('fs');
+            const path = await import('path');
+            
+            const extensionDir = './extensions/ublock-origin-lite';
+            const manifestPath = path.join(extensionDir, 'manifest.json');
+            
+            let statusMessage = '🛡️ **Extension Status:**\n';
+            
+            // Check if extension directory exists
+            if (!fs.existsSync(extensionDir)) {
+                statusMessage += '❌ Extension directory not found\n';
+                statusMessage += '📁 Expected: ./extensions/ublock-origin-lite/\n';
+                statusMessage += '💡 Run: `npm run setup-adblocker` to get instructions\n';
+            } else {
+                statusMessage += '✅ Extension directory found\n';
+                
+                // Check if manifest exists
+                if (!fs.existsSync(manifestPath)) {
+                    statusMessage += '❌ manifest.json not found\n';
+                    statusMessage += '📄 Expected: ./extensions/ublock-origin-lite/manifest.json\n';
+                } else {
+                    statusMessage += '✅ manifest.json found\n';
+                    
+                    // Read manifest info
+                    try {
+                        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+                        statusMessage += `📦 Version: ${manifest.version}\n`;
+                        statusMessage += `📦 Name: ${manifest.name}\n`;
+                        statusMessage += `📦 Min Chrome: ${manifest.minimum_chrome_version || 'Not specified'}\n`;
+                    } catch (error) {
+                        statusMessage += `❌ Error reading manifest: ${error.message}\n`;
+                    }
+                }
+            }
+            
+            // Check if browser is running and extension is loaded
+            if (this.browser) {
+                try {
+                    const targets = await this.browser.targets();
+                    const extensionTargets = targets.filter(target => 
+                        target.type() === 'background_page' && 
+                        target.url().includes('ublock')
+                    );
+                    
+                    if (extensionTargets.length > 0) {
+                        statusMessage += '✅ Extension loaded in browser\n';
+                    } else {
+                        statusMessage += '⚠️ Extension not detected in browser\n';
+                        statusMessage += '💡 This may be due to version incompatibility\n';
+                    }
+                } catch (error) {
+                    statusMessage += `❌ Error checking browser targets: ${error.message}\n`;
+                }
+            } else {
+                statusMessage += '⚠️ Browser not running\n';
+            }
+            
+            await message.reply(statusMessage);
+            
+        } catch (error) {
+            console.error('❌ Error checking extension status:', error);
+            await message.reply('❌ Error checking extension status: ' + error.message);
         }
     }
 
