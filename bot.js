@@ -253,7 +253,7 @@ class ASTDXBannerBot {
             }
             
             this.browser = await puppeteer.launch({
-                headless: false, // Back to headless for server compatibility
+                headless: "new", // Back to headless for server compatibility
                 userDataDir: userDataDir,
                 args: [
                     // Enhanced stealth arguments
