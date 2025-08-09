@@ -37,6 +37,11 @@ const config = {
         yBannerMinute: 31,  // Capture Y banner at minute 31
         minTimeBetweenCaptures: 30000, // Minimum 30 seconds between captures
         hashCacheSize: 5 // Keep last 5 hashes to avoid duplicates
+    },
+    ocrSettings: {
+        attemptDelayMs: 250,     // Delay between OCR attempts when looping
+        roiType: 'jpeg',         // Use JPEG for ROI OCR for speed
+        roiQuality: 60           // JPEG quality for ROI screenshots
     }
 };
 
@@ -58,10 +63,11 @@ class ASTDXBannerBot {
         this.recentHashes = [];
         this.lastCaptureTime = 0;
         this.lastSentBannerNames = { X: null, Y: null }; // Add this for deduplication
+        this.tesseractWorker = null;
         this.setupDiscordClient();
     }
 
-    // OCR helper to detect banner name from screenshot
+    // OCR helper to detect banner name from screenshot (kept for compatibility)
     async ocrBannerName() {
         try {
             const ocrArea = this.config.ocrArea;
@@ -77,85 +83,166 @@ class ASTDXBannerBot {
         }
     }
 
+    // Initialize a persistent Tesseract worker for speed
+    async initTesseractWorker() {
+        try {
+            if (this.tesseractWorker) return;
+            this.tesseractWorker = await Tesseract.createWorker();
+            await this.tesseractWorker.reinitialize('eng');
+            await this.tesseractWorker.setParameters({
+                tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',
+                tessedit_pageseg_mode: '6'
+            });
+            console.log('✅ Tesseract worker initialized');
+        } catch (error) {
+            console.log('⚠️ Could not init Tesseract worker, falling back:', error.message);
+            this.tesseractWorker = null;
+        }
+    }
+
+    // Generic OCR helper: returns recognized text (uppercased) from a given image buffer
+    async ocrTextFromImage(imageBuffer) {
+        try {
+            if (this.tesseractWorker) {
+                const { data: { text } } = await this.tesseractWorker.recognize(imageBuffer);
+                return (text || '').toUpperCase();
+            }
+            const { data: { text } } = await Tesseract.recognize(imageBuffer, 'eng', {
+                tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',
+                psm: 6
+            });
+            return (text || '').toUpperCase();
+        } catch (error) {
+            console.error('OCR error (ocrTextFromImage):', error);
+            return '';
+        }
+    }
+
+    // Parse helpers for OCR text
+    extractBannerLabel(ocrTextUpper) {
+        const match = ocrTextUpper.match(/\b([XY])\s*BANNER\b/);
+        return match ? match[0] : null; // Returns 'X BANNER' or 'Y BANNER'
+    }
+
+    hasFiveStar(ocrTextUpper) {
+        return /\b5\s*STAR\b/.test(ocrTextUpper);
+    }
+
+    // Capture only a small region for fast OCR (JPEG by default)
+    async captureRegionForOcr(area, debugName = null) {
+        try {
+            const options = {
+                clip: { x: area.x, y: area.y, width: area.width, height: area.height },
+                type: this.config.ocrSettings.roiType || 'jpeg'
+            };
+            if (options.type === 'jpeg') {
+                options.quality = this.config.ocrSettings.roiQuality || 60;
+            }
+            
+            // Add debug path if debugName provided
+            if (debugName) {
+                options.path = `./debug_ocr_${debugName}_${Date.now()}.jpg`;
+                console.log(`📸 Debug OCR screenshot saved: ${options.path}`);
+            }
+            
+            return await this.page.screenshot(options);
+        } catch (error) {
+            console.error('❌ Failed to capture OCR region:', error);
+            return null;
+        }
+    }
+
     // New capture strategy for X and Y banners using OCR
     async captureAndSendBanners() {
         // Reset duplicate hash cache and last sent banner names before capturing banners
         this.recentHashes = [];
         this.lastSentBannerNames = { X: null, Y: null };
 
-        // Try to find and send X banner
-        let xBannerFound = false;
-        for (let i = 0; i < 10; i++) {
-            console.log(`🔎 [X] Attempt ${i + 1}/10: Capturing screenshot...`);
-            const xScreenshot = await this.captureBannerScreenshot(this.config.xBannerArea);
-            if (!xScreenshot) {
-                console.log('❌ [X] Screenshot is null or failed.');
+        // Make sure OCR worker is ready
+        await this.initTesseractWorker();
+
+        // Find X banner until detected
+        let xAttempts = 0;
+        while (true) {
+            xAttempts++;
+            console.log(`🔎 [X] Attempt ${xAttempts}: Capturing OCR ROI...`);
+            const xLabelRoi = await this.captureRegionForOcr(this.config.ocrArea, `x_label_attempt_${xAttempts}`);
+            if (!xLabelRoi) {
+                console.log('❌ [X] OCR ROI capture failed.');
+                await new Promise(resolve => setTimeout(resolve, this.config.ocrSettings.attemptDelayMs));
                 continue;
             }
 
+            const xTextLabel = await this.ocrTextFromImage(xLabelRoi);
+            const xLabel = this.extractBannerLabel(xTextLabel);
+            console.log(`🔤 [X] OCR detected: label=${xLabel || 'none'}`);
 
-            const xBannerName = await this.ocrBannerName(xScreenshot);
-            console.log(`🔤 [X] OCR result: "${xBannerName}"`);
-
-
-            if (xBannerName === 'X BANNER') {
-                console.log('[X] Banner detected as X BANNER.');
-                if (this.lastSentBannerNames.X !== xBannerName) {
+            if (xLabel === 'X BANNER') {
+                console.log('[X] Correct X banner detected.');
+                // Grab full banner ASAP
+                const xScreenshot = await this.captureBannerScreenshot(this.config.xBannerArea);
+                if (!xScreenshot) {
+                    console.log('❌ [X] Full screenshot failed after detection, retrying...');
+                    await new Promise(resolve => setTimeout(resolve, this.config.ocrSettings.attemptDelayMs));
+                    continue;
+                }
+                if (this.lastSentBannerNames.X !== xLabel) {
                     if (this.isDuplicateImage(xScreenshot)) {
                         console.log('🚫 [X] Duplicate image detected, not sending.');
                     } else {
                         await this.sendToDiscord(xScreenshot, 'X Banner', '');
-                        this.lastSentBannerNames.X = xBannerName;
+                        this.lastSentBannerNames.X = xLabel;
                         console.log('✅ [X] Banner sent to Discord.');
                     }
                 } else {
                     console.log('🚫 [X] Duplicate X Banner name, not sending.');
                 }
-                xBannerFound = true;
                 break;
-            } else {
-                console.log(`[X] OCR did not detect X BANNER, got: "${xBannerName}"`);
             }
-            await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-        if (!xBannerFound) console.log('❌ X Banner not found after 10 tries.');
 
-        // Try to find and send Y banner
-        let yBannerFound = false;
-        for (let i = 0; i < 10; i++) {
-            console.log(`🔎 [Y] Attempt ${i + 1}/10: Capturing screenshot...`);
-            const yScreenshot = await this.captureBannerScreenshot(this.config.yBannerArea);
-            if (!yScreenshot) {
-                console.log('❌ [Y] Screenshot is null or failed.');
+            await new Promise(resolve => setTimeout(resolve, this.config.ocrSettings.attemptDelayMs));
+        }
+
+        // Find Y banner until detected
+        let yAttempts = 0;
+        while (true) {
+            yAttempts++;
+            console.log(`🔎 [Y] Attempt ${yAttempts}: Capturing OCR ROIs...`);
+            const yLabelRoi = await this.captureRegionForOcr(this.config.ocrArea, `y_label_attempt_${yAttempts}`);
+            if (!yLabelRoi) {
+                console.log('❌ [Y] OCR ROI capture failed.');
+                await new Promise(resolve => setTimeout(resolve, this.config.ocrSettings.attemptDelayMs));
                 continue;
             }
-            console.log(`🖼️ [Y] Screenshot size: ${yScreenshot.length} bytes`);
 
-            const yBannerName = await this.ocrBannerName(yScreenshot);
-            console.log(`🔤 [Y] OCR result: "${yBannerName}"`);
+            const yTextLabel = await this.ocrTextFromImage(yLabelRoi);
+            const yLabel = this.extractBannerLabel(yTextLabel);
+            console.log(`🔤 [Y] OCR detected: label=${yLabel || 'none'}`);
 
-            if (yBannerName === 'Y BANNER') {
-                console.log('[Y] Banner detected as Y BANNER.');
-                if (this.lastSentBannerNames.Y !== yBannerName) {
+            if (yLabel === 'Y BANNER') {
+                console.log('[Y] Correct banner was detected.');
+                const yScreenshot = await this.captureBannerScreenshot(this.config.yBannerArea);
+                if (!yScreenshot) {
+                    console.log('❌ [Y] Full screenshot failed after detection, retrying...');
+                    await new Promise(resolve => setTimeout(resolve, this.config.ocrSettings.attemptDelayMs));
+                    continue;
+                }
+                if (this.lastSentBannerNames.Y !== yLabel) {
                     if (this.isDuplicateImage(yScreenshot)) {
                         console.log('🚫 [Y] Duplicate image detected, not sending.');
                     } else {
                         await this.sendToDiscord(yScreenshot, 'Y Banner', '', false);
-                        this.lastSentBannerNames.Y = yBannerName;
+                        this.lastSentBannerNames.Y = yLabel;
                         console.log('✅ [Y] Banner screenshot sent to Discord (no message).');
                     }
                 } else {
                     console.log('🚫 [Y] Duplicate Y Banner name, not sending.');
                 }
-                yBannerFound = true;
                 break;
-            } else {
-                console.log(`[Y] OCR did not detect Y BANNER, got: "${yBannerName}"`);
             }
-            await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-        if (!yBannerFound) console.log('❌ Y Banner not found after 10 tries.');
 
+            await new Promise(resolve => setTimeout(resolve, this.config.ocrSettings.attemptDelayMs));
+        }
     }
 
     async setupDiscordClient() {
@@ -256,7 +343,7 @@ class ASTDXBannerBot {
             }
             
             this.browser = await puppeteer.launch({
-                headless: "new", // Back to headless for server compatibility
+                headless: false, // Back to headless for server compatibility
                 userDataDir: userDataDir,
                 args: [
                     // Enhanced stealth arguments
