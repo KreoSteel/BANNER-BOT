@@ -33,13 +33,13 @@ const config = {
     },
     // Simplified configuration for alternating capture
     captureStrategy: {
-        xBannerMinute: 1, // Capture X banner at minute 1
-        yBannerMinute: 31,  // Capture Y banner at minute 31
+        xBannerMinute: 4, // Capture X banner at minute 4
+        yBannerMinute: 34,  // Capture Y banner at minute 34
         minTimeBetweenCaptures: 30000, // Minimum 30 seconds between captures
         hashCacheSize: 5 // Keep last 5 hashes to avoid duplicates
     },
     ocrSettings: {
-        attemptDelayMs: 250,     // Delay between OCR attempts when looping
+        attemptDelayMs: 1000,     // Delay between OCR attempts when looping
         roiType: 'jpeg',         // Use JPEG for ROI OCR for speed
         roiQuality: 60           // JPEG quality for ROI screenshots
     }
@@ -139,11 +139,6 @@ class ASTDXBannerBot {
                 options.quality = this.config.ocrSettings.roiQuality || 60;
             }
             
-            // Add debug path if debugName provided
-            if (debugName) {
-                options.path = `./debug_ocr_${debugName}_${Date.now()}.jpg`;
-                console.log(`📸 Debug OCR screenshot saved: ${options.path}`);
-            }
             
             return await this.page.screenshot(options);
         } catch (error) {
@@ -343,7 +338,7 @@ class ASTDXBannerBot {
             }
             
             this.browser = await puppeteer.launch({
-                headless: false, // Back to headless for server compatibility
+                headless: "new",
                 userDataDir: userDataDir,
                 args: [
                     // Enhanced stealth arguments
