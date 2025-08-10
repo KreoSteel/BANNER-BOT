@@ -39,7 +39,7 @@ const config = {
         hashCacheSize: 5 // Keep last 5 hashes to avoid duplicates
     },
     ocrSettings: {
-        attemptDelayMs: 1000,     // Delay between OCR attempts when looping
+        attemptDelayMs: 500,     // Delay between OCR attempts when looping
         roiType: 'jpeg',         // Use JPEG for ROI OCR for speed
         roiQuality: 60           // JPEG quality for ROI screenshots
     }
