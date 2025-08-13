@@ -93,6 +93,20 @@ class ASTDXBannerBot {
                 tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ',
                 tessedit_pageseg_mode: '6'
             });
+            
+            // Add worker timeout to prevent memory buildup
+            setTimeout(async () => {
+                if (this.tesseractWorker) {
+                    try {
+                        await this.tesseractWorker.terminate();
+                        this.tesseractWorker = null;
+                        console.log('🔄 Tesseract worker auto-terminated after timeout');
+                    } catch (error) {
+                        console.log('⚠️ Error terminating Tesseract worker:', error.message);
+                    }
+                }
+            }, 30 * 60 * 1000); // 30 minutes
+            
             console.log('✅ Tesseract worker initialized');
         } catch (error) {
             console.log('⚠️ Could not init Tesseract worker, falling back:', error.message);
@@ -156,11 +170,13 @@ class ASTDXBannerBot {
         // Make sure OCR worker is ready
         await this.initTesseractWorker();
 
+        const MAX_ATTEMPTS = 50; // Prevent infinite loops
+
         // Find X banner until detected
         let xAttempts = 0;
-        while (true) {
+        while (xAttempts < MAX_ATTEMPTS) {
             xAttempts++;
-            console.log(`🔎 [X] Attempt ${xAttempts}: Capturing OCR ROI...`);
+            console.log(`🔎 [X] Attempt ${xAttempts}/${MAX_ATTEMPTS}: Capturing OCR ROI...`);
             const xLabelRoi = await this.captureRegionForOcr(this.config.ocrArea, `x_label_attempt_${xAttempts}`);
             if (!xLabelRoi) {
                 console.log('❌ [X] OCR ROI capture failed.');
@@ -198,11 +214,16 @@ class ASTDXBannerBot {
             await new Promise(resolve => setTimeout(resolve, this.config.ocrSettings.attemptDelayMs));
         }
 
+        if (xAttempts >= MAX_ATTEMPTS) {
+            console.log('❌ [X] Max attempts reached, skipping X banner');
+            return;
+        }
+
         // Find Y banner until detected
         let yAttempts = 0;
-        while (true) {
+        while (yAttempts < MAX_ATTEMPTS) {
             yAttempts++;
-            console.log(`🔎 [Y] Attempt ${yAttempts}: Capturing OCR ROIs...`);
+            console.log(`🔎 [Y] Attempt ${yAttempts}/${MAX_ATTEMPTS}: Capturing OCR ROIs...`);
             const yLabelRoi = await this.captureRegionForOcr(this.config.ocrArea, `y_label_attempt_${yAttempts}`);
             if (!yLabelRoi) {
                 console.log('❌ [Y] OCR ROI capture failed.');
@@ -237,6 +258,11 @@ class ASTDXBannerBot {
             }
 
             await new Promise(resolve => setTimeout(resolve, this.config.ocrSettings.attemptDelayMs));
+        }
+
+        if (yAttempts >= MAX_ATTEMPTS) {
+            console.log('❌ [Y] Max attempts reached, skipping Y banner');
+            return;
         }
     }
 
@@ -485,6 +511,11 @@ class ASTDXBannerBot {
 
             // Start the scheduled monitoring
             this.startScheduledMonitoring();
+
+            // Start memory monitoring
+            this.memoryMonitorInterval = setInterval(() => {
+                this.logMemoryUsage();
+            }, 60000); // Log memory usage every minute
 
         } catch (error) {
             console.error('❌ Failed to start monitoring:', error);
@@ -2220,11 +2251,19 @@ class ASTDXBannerBot {
         this.isRunning = false;
 
         try {
-            // if (this.tesseractWorker) { // Removed as per edit hint
-            //     await this.tesseractWorker.terminate(); // Removed as per edit hint
-            //     this.tesseractWorker = null; // Removed as per edit hint
-            //     console.log('✅ Tesseract worker terminated'); // Removed as per edit hint
-            // } // Removed as per edit hint
+            // Stop scheduled monitoring
+            this.stopScheduledMonitoring();
+
+            // Terminate Tesseract worker to prevent memory leaks
+            if (this.tesseractWorker) {
+                try {
+                    await this.tesseractWorker.terminate();
+                    this.tesseractWorker = null;
+                    console.log('✅ Tesseract worker terminated');
+                } catch (error) {
+                    console.log('⚠️ Error terminating Tesseract worker:', error.message);
+                }
+            }
 
             if (this.browser) {
                 await this.browser.close();
@@ -2239,6 +2278,41 @@ class ASTDXBannerBot {
         } catch (error) {
             console.error('Error stopping bot:', error);
         }
+    }
+
+    // Add memory monitoring method
+    logMemoryUsage() {
+        const used = process.memoryUsage();
+        console.log('📊 Memory Usage:');
+        console.log(`   RSS: ${Math.round(used.rss / 1024 / 1024)} MB`);
+        console.log(`   Heap Used: ${Math.round(used.heapUsed / 1024 / 1024)} MB`);
+        console.log(`   Heap Total: ${Math.round(used.heapTotal / 1024 / 1024)} MB`);
+        console.log(`   External: ${Math.round(used.external / 1024 / 1024)} MB`);
+    }
+
+    // Add cleanup method
+    async performCleanup() {
+        // Clear image cache
+        this.recentHashes = [];
+        
+        // Force garbage collection if available
+        if (global.gc) {
+            global.gc();
+            console.log('🗑️ Forced garbage collection');
+        }
+        
+        // Log memory usage
+        this.logMemoryUsage();
+    }
+
+    // Add proper interval cleanup
+    stopScheduledMonitoring() {
+        if (this._scheduledMonitorInterval) {
+            clearInterval(this._scheduledMonitorInterval);
+            this._scheduledMonitorInterval = null;
+        }
+        this._scheduledMonitorActive = false;
+        console.log('⏰ Scheduled monitoring stopped');
     }
 }
 
