@@ -15,15 +15,15 @@ const config = {
     livestreamUrl: process.env.LIVESTREAM_URL || 'https://www.youtube.com/watch?v=your_livestream_id',
     xBannerArea: {
         x: 50,
-        y: 50,
+        y: 60,
         width: 1200,
-        height: 800
+        height: 650
     },
     yBannerArea: {
         x: 50,
-        y: 50,
+        y: 60,
         width: 1200,
-        height: 800
+        height: 650
     },
     ocrArea: {
         x: 50,
@@ -32,8 +32,8 @@ const config = {
         height: 150
     },
     captureStrategy: {
-        xBannerMinute: 4,
-        yBannerMinute: 34,
+        xBannerMinute: 1,
+        yBannerMinute: 31,
         minTimeBetweenCaptures: 30000,
         hashCacheSize: 5
     },
@@ -441,7 +441,7 @@ class ASTDXBannerBot {
         this.client.on(Events.MessageCreate, async (message) => {
             if (message.author.bot) return;
 
-            if (message.content === '!capture-banners') {
+            if (message.content === '!test') {
                 console.log('📋 Manual banner capture command received');
                 const memoryBefore = this.getMemoryUsage();
                 
